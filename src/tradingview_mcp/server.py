@@ -90,6 +90,7 @@ from tradingview_mcp.core.services.backtest_service import (
     compare_strategies as _compare_strategies,
     walk_forward_backtest,
 )
+from tradingview_mcp.core.services.positioning_service import analyze_positioning
 from tradingview_mcp.core.services.market_structure_service import (
     analyze_market_breadth,
     rank_relative_strength,
@@ -1491,6 +1492,45 @@ async def relative_strength(
         )
     except Exception as e:
         return exception_to_envelope(e, context="relative_strength")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Perpetual Positioning", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def positioning(
+    symbol: str,
+    period: str = "4h",
+    history_bars: int = 30,
+) -> dict:
+    """Who is positioned where on a perpetual, and what it costs them.
+
+    The only tool here that does not read price or volume. Combines seven
+    public Binance futures feeds: funding (current, annualised and recent
+    trend), open interest (level, notional, change), the global long/short
+    account split, the top traders' split, and aggressive taker flow.
+
+    The crowd-versus-top-traders comparison is the point: a market where 75%
+    of accounts are long while the largest traders sit at 68% is positioned
+    differently from one where both agree, and nothing derived from price can
+    tell those apart.
+
+    Needs a Binance PERPETUAL contract. Most pairs are spot-only and return
+    SYMBOL_NOT_FOUND with suggestions. No API key required.
+
+    Args:
+        symbol: Pair symbol, e.g. BTCUSDT
+        period: Sampling interval for the ratio and OI histories —
+            5m, 15m, 30m, 1h, 2h, 4h, 6h, 12h or 1D
+        history_bars: History points to fetch, 2-500 (default 30)
+
+    Returns:
+        dict with funding, open_interest, crowd, top_traders,
+        crowd_vs_top_divergence_pts, taker_flow, an oi_price_read quadrant and
+        an assessment carrying squeeze_risk plus the thresholds behind it. On
+        ANY failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(analyze_positioning, symbol, period, history_bars)
+    except Exception as e:
+        return exception_to_envelope(e, context="positioning")
 
 
 # ── Resource ───────────────────────────────────────────────────────────────────
