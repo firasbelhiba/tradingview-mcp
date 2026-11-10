@@ -242,7 +242,9 @@ def _enrich(trader: dict, inst_type: str, history_limit: int) -> dict:
     out = {
         "nickname": trader.get("nickName"),
         "unique_code": code,
-        "profile_url": trader.get("portLink"),
+        # OKX's portLink is the trader's avatar image, not a profile page —
+        # naming it profile_url invited a click that goes to a .png.
+        "avatar_url": trader.get("portLink"),
         "advertised": {
             "return_pct": None if pnl_ratio is None else round(pnl_ratio * 100, 1),
             "win_rate_pct": (
