@@ -245,3 +245,10 @@ dist/
 
 # Remotion promo video project (source + renders kept out of the repo)
 promo/
+
+# Alert store (alert_store.py). The default path is ~/.tradingview-mcp/, but
+# TRADINGVIEW_MCP_ALERTS_DB can point anywhere, including here — and an
+# alerts database is user data, not source.
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
