@@ -119,6 +119,10 @@ from tradingview_mcp.core.services.sentiment_index_service import (
     get_fear_greed,
     get_narrative_rotation,
 )
+from tradingview_mcp.core.services.copytrading_service import (
+    get_lead_trader,
+    list_lead_traders,
+)
 from tradingview_mcp.core.services.crypto_analysis_service import (
     analyze_crypto_fibonacci,
     build_crypto_watchlist,
@@ -1555,6 +1559,85 @@ async def positioning(
         return await asyncio.to_thread(analyze_positioning, symbol, period, history_bars)
     except Exception as e:
         return exception_to_envelope(e, context="positioning")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Lead Traders", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def lead_traders(
+    sort: str = "track_record",
+    limit: int = 10,
+    instrument_type: str = "SWAP",
+    min_lead_days: Optional[int] = None,
+    max_avg_leverage: Optional[float] = None,
+    history_limit: int = 20,
+) -> dict:
+    """Copy-trading lead traders from OKX, with the risk the leaderboard hides.
+
+    The leaderboard itself publishes return, win rate, followers and AUM — and
+    no leverage, no drawdown, no Sharpe. Ranked on return alone it is a list
+    of whoever ran the most leverage and survived. So this fetches each
+    candidate's closed trades and weekly PnL and measures what is missing:
+    average and peak leverage, the worst single trade, losing weeks and a
+    drawdown floor, then attaches risk_flags.
+
+    Default sort is track_record, not return, deliberately.
+
+    Reports published statistics only — it places, follows and sizes nothing,
+    and is not a recommendation.
+
+    Args:
+        sort: "track_record", "return", "lowest_leverage", "win_rate" or
+            "followers"
+        limit: Traders to return, 1-15 (each costs two extra requests)
+        instrument_type: "SWAP" or "SPOT"
+        min_lead_days: Drop traders with a shorter track record
+        max_avg_leverage: Drop traders whose measured average leverage is above
+            this
+        history_limit: Closed trades to sample per trader, 5-100
+
+    Returns:
+        dict with traders carrying advertised vs measured figures, weekly
+        stats, risk_flags, and a what_this_cannot_tell_you block. On ANY
+        failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            list_lead_traders, sort, limit, instrument_type,
+            min_lead_days, max_avg_leverage, history_limit,
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="lead_traders")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Lead Trader Profile", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def lead_trader_profile(
+    unique_code: str,
+    instrument_type: str = "SWAP",
+    history_limit: int = 50,
+) -> dict:
+    """Full risk profile for one lead trader, including live open positions.
+
+    Shows what they are holding right now with the leverage on each position,
+    alongside measured trade statistics and instrument preferences.
+
+    Reports published statistics only — it places, follows and sizes nothing,
+    and is not a recommendation.
+
+    Args:
+        unique_code: The trader's uniqueCode from lead_traders
+        instrument_type: "SWAP" or "SPOT"
+        history_limit: Closed trades to sample, 5-100
+
+    Returns:
+        dict with advertised and measured figures, open_positions carrying
+        per-position leverage, weekly stats and risk_flags. On ANY failure
+        returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            get_lead_trader, unique_code, instrument_type, history_limit
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="lead_trader_profile")
 
 
 @mcp.tool(annotations=ToolAnnotations(title="Fear and Greed Index", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
