@@ -34,7 +34,17 @@ def test_wrapped_tool_still_returns_the_original_result(monkeypatch):
 
 
 def test_offload_preserves_annotations_and_metadata():
+    """The wrapper must not drop or rewrite what a tool declared.
+
+    This checks PRESERVATION, not policy: it used to assert
+    ``readOnlyHint is True`` for every tool, which silently doubled as a
+    second copy of the read-only invariant and broke the moment a legitimately
+    stateful tool arrived. Whether a given hint is allowed to be False belongs
+    in test_tool_annotations, which owns that rule and its allowlist; here we
+    only require that each hint survives wrapping with a real boolean.
+    """
     for t in _tools():
         assert t.annotations is not None and t.annotations.title
-        assert t.annotations.readOnlyHint is True
+        assert isinstance(t.annotations.readOnlyHint, bool)
+        assert isinstance(t.annotations.destructiveHint, bool)
         assert t.fn_metadata is not None  # validation schema still from the original signature

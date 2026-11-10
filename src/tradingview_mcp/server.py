@@ -91,6 +91,14 @@ from tradingview_mcp.core.services.backtest_service import (
     walk_forward_backtest,
 )
 from tradingview_mcp.core.services.positioning_service import analyze_positioning
+from tradingview_mcp.core.services.alert_service import (
+    check_alerts,
+    create_alert,
+    delete_alert as _delete_alert,
+    list_alerts as _list_alerts,
+    metric_catalogue,
+    rearm_alert,
+)
 from tradingview_mcp.core.services.market_structure_service import (
     analyze_market_breadth,
     rank_relative_strength,
@@ -1531,6 +1539,137 @@ async def positioning(
         return await asyncio.to_thread(analyze_positioning, symbol, period, history_bars)
     except Exception as e:
         return exception_to_envelope(e, context="positioning")
+
+
+# ── Alerts ─────────────────────────────────────────────────────────────────────
+#
+# The only tools here that keep state. They write rows to a local SQLite file
+# (see alert_store) and nothing else: no order, no transfer, no external
+# service, no network side effect. Their annotations say so honestly —
+# readOnlyHint is False because they do persist something — and
+# test_tool_annotations keeps every OTHER tool read-only.
+
+@mcp.tool(annotations=ToolAnnotations(title="Create Alert", readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True))
+async def alert_create(
+    symbol: str,
+    metric: str,
+    operator: str,
+    threshold: float,
+    exchange: str = "KUCOIN",
+    timeframe: str = "4h",
+    note: Optional[str] = None,
+    repeat_after_fire: bool = False,
+) -> dict:
+    """Store a standing condition to be evaluated later by alert_check.
+
+    Nothing is pushed anywhere — MCP is request/response. Pair this with a
+    scheduler that calls alert_check and relays what fired.
+
+    Conditions are a fixed vocabulary, not expressions: a metric, an operator
+    and a threshold. Call alert_metrics for the list with units.
+
+    Args:
+        symbol: Pair or ticker, e.g. BTCUSDT. Ignored for market-wide metrics
+        metric: e.g. price, rsi, funding_annualised_pct, crowd_long_pct,
+            breadth_above_ema50_pct — see alert_metrics
+        operator: "above" or "below" (tested at check time, not a crossing)
+        threshold: The number to compare against
+        exchange: Venue, e.g. KUCOIN, BINANCE, NASDAQ
+        timeframe: Timeframe for the metric, e.g. 4h, 1D
+        note: Free text stored with the alert and echoed when it fires
+        repeat_after_fire: Keep checking after it fires instead of disarming
+
+    Returns:
+        The stored alert including its id. On ANY failure returns a structured
+        error envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            create_alert, symbol, metric, operator, threshold,
+            exchange, timeframe, note, repeat_after_fire,
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="alert_create")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Check Alerts", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def alert_check(include_triggered: bool = False) -> dict:
+    """Evaluate armed alerts and report which conditions are now met.
+
+    Scanner-backed metrics are batched: fifty price alerts on one exchange
+    cost ONE upstream request, not fifty.
+
+    Alerts whose data could not be fetched come back under not_evaluated
+    rather than counted as "condition not met" — a dead feed must not read as
+    a quiet market.
+
+    Args:
+        include_triggered: Also re-evaluate alerts that already fired
+
+    Returns:
+        dict with fired, still_waiting (each carrying distance_to_trigger) and
+        not_evaluated. On ANY failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(check_alerts, include_triggered)
+    except Exception as e:
+        return exception_to_envelope(e, context="alert_check")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="List Alerts", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def alert_list(state: Optional[str] = None) -> dict:
+    """List stored alerts and their state.
+
+    Args:
+        state: "armed", "triggered", or omit for all
+
+    Returns:
+        dict with alerts, counts and the database path. On ANY failure returns
+        a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(_list_alerts, state)
+    except Exception as e:
+        return exception_to_envelope(e, context="alert_list")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Manage Alert", readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=False))
+async def alert_manage(alert_id: int, action: str = "delete") -> dict:
+    """Delete an alert, or re-arm one that already fired.
+
+    Deleting is irreversible — the row is removed, not archived.
+
+    Args:
+        alert_id: The id returned by alert_create or alert_list
+        action: "delete" or "rearm"
+
+    Returns:
+        dict confirming what happened. On ANY failure returns a structured
+        error envelope.
+    """
+    try:
+        act = (action or "delete").strip().lower()
+        if act == "delete":
+            return await asyncio.to_thread(_delete_alert, alert_id)
+        if act == "rearm":
+            return await asyncio.to_thread(rearm_alert, alert_id)
+        return make_error(
+            ErrorCode.INVALID_PARAMETER,
+            f"action must be 'delete' or 'rearm', got {action!r}",
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="alert_manage")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Alert Metrics Catalogue", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def alert_metrics() -> dict:
+    """The metrics alert_create accepts, with units and data source."""
+    try:
+        return {"metrics": await asyncio.to_thread(metric_catalogue),
+                "operators": ["above", "below"],
+                "note": "operators test the value at check time, not a crossing"}
+    except Exception as e:
+        return exception_to_envelope(e, context="alert_metrics")
 
 
 # ── Resource ───────────────────────────────────────────────────────────────────
