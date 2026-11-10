@@ -123,6 +123,9 @@ from tradingview_mcp.core.services.copytrading_service import (
     get_lead_trader,
     list_lead_traders,
 )
+from tradingview_mcp.core.services.copytrading_trades_service import (
+    get_lead_trader_trades,
+)
 from tradingview_mcp.core.services.crypto_analysis_service import (
     analyze_crypto_fibonacci,
     build_crypto_watchlist,
@@ -1638,6 +1641,59 @@ async def lead_trader_profile(
         )
     except Exception as e:
         return exception_to_envelope(e, context="lead_trader_profile")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Lead Trader Trade History", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def lead_trader_trades(
+    unique_code: str,
+    instrument_type: str = "SWAP",
+    max_trades: int = 300,
+    instrument: Optional[str] = None,
+    include_trades: bool = True,
+    include_equity_curve: bool = False,
+) -> dict:
+    """Every closed trade for one lead trader, with full detail and statistics.
+
+    Pages back through the whole history (OKX caps a page at 100), so this is
+    the complete log rather than a recent slice, and reports
+    complete_history so you know which you got.
+
+    Per trade: instrument, side, leverage, margin, size, open and close price,
+    open and close time, hours held, PnL and PnL as a percent of margin.
+
+    Computed over the set: win rate, profit factor, expectancy per trade,
+    average win vs average loss, hold times, per-instrument and per-side
+    breakdowns, and a realised drawdown sequenced by close time — which
+    catches declines the weekly figure in lead_trader_profile cannot see.
+
+    Note that pnl_pct_of_margin is return on MARGIN, not notional: -262 means
+    the position lost 2.62x the margin committed, which leverage allows.
+
+    Published statistics only — places, follows and sizes nothing, and is not
+    a recommendation.
+
+    Args:
+        unique_code: The trader's uniqueCode from lead_traders
+        instrument_type: "SWAP" only. OKX publishes trade history for futures
+            lead traders alone; SPOT is rejected with an explanation
+        max_trades: Upper bound on trades fetched, 10-2000 (each 100 is one
+            request)
+        instrument: Keep only this instrument, e.g. "BTC-USDT-SWAP"
+        include_trades: Return the individual rows; false for statistics only
+        include_equity_curve: Return cumulative realised PnL per trade
+
+    Returns:
+        dict with trades, statistics, realised_drawdown, by_instrument,
+        by_side and field_notes. On ANY failure returns a structured error
+        envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            get_lead_trader_trades, unique_code, instrument_type, max_trades,
+            instrument, include_trades, include_equity_curve,
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="lead_trader_trades")
 
 
 @mcp.tool(annotations=ToolAnnotations(title="Fear and Greed Index", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
