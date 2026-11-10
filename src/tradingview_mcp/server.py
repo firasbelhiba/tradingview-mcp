@@ -91,6 +91,10 @@ from tradingview_mcp.core.services.backtest_service import (
     walk_forward_backtest,
 )
 from tradingview_mcp.core.services.positioning_service import analyze_positioning
+from tradingview_mcp.core.services.positioning_scan_service import (
+    scan_squeeze_risk,
+    screen_funding,
+)
 from tradingview_mcp.core.services.alert_service import (
     check_alerts,
     create_alert,
@@ -1539,6 +1543,77 @@ async def positioning(
         return await asyncio.to_thread(analyze_positioning, symbol, period, history_bars)
     except Exception as e:
         return exception_to_envelope(e, context="positioning")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Funding Screener", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def funding_screener(
+    limit: int = 20,
+    direction: str = "both",
+    min_quote_volume_usd: Optional[float] = 10000000.0,
+) -> dict:
+    """Rank the whole perpetual board by cost of carry — three requests.
+
+    Binance returns every perp's funding in one call, so this costs the same
+    whether the board has 10 contracts or 950.
+
+    The funding interval is per symbol and it matters: 820 of ~945 perps
+    settle every 4 hours, not 8, so annualising uniformly at 8h understates
+    the majority of the market.
+
+    Args:
+        limit: Rows per side, 1-100
+        direction: "both", "longs_pay" (most positive) or "shorts_pay"
+        min_quote_volume_usd: Liquidity floor — a 300%/yr rate on a market
+            with no volume is noise. Pass null to disable
+
+    Returns:
+        dict with longs_pay_most / shorts_pay_most and a board summary. On ANY
+        failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            screen_funding, limit, direction, min_quote_volume_usd
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="funding_screener")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Squeeze Risk Scan", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def squeeze_scan(
+    limit: int = 12,
+    candidates: int = 30,
+    period: str = "4h",
+    min_quote_volume_usd: Optional[float] = 50000000.0,
+) -> dict:
+    """Rank the perpetual board by liquidation-cascade risk.
+
+    Where `positioning` answers "is the crowd exposed on BTC?", this answers
+    "where is the crowd exposed at all".
+
+    Two-stage, because crowding and open-interest history are per-symbol only:
+    stage one narrows the board on bulk funding where funding runs AGAINST the
+    price move, stage two measures crowding for the shortlist and grades it
+    with the same logic the single-symbol tool uses — so the two cannot
+    disagree.
+
+    Args:
+        limit: Rows returned, 1-30
+        candidates: Contracts to fetch detail for, 1-30 — each costs three
+            requests, so this is the cost knob
+        period: Sampling interval for crowding and OI history
+        min_quote_volume_usd: Liquidity floor for stage one
+
+    Returns:
+        dict with elevated (the ELEVATED subset), ranked rows carrying
+        factors, crowding, funding and OI state, plus the shortlist rule and
+        thresholds. On ANY failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            scan_squeeze_risk, limit, candidates, period, min_quote_volume_usd
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="squeeze_scan")
 
 
 # ── Alerts ─────────────────────────────────────────────────────────────────────

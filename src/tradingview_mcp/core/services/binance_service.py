@@ -374,6 +374,45 @@ def get_ticker_24h(symbol: str) -> dict:
     return _fetch("/fapi/v1/ticker/24hr", {"symbol": symbol})
 
 
+# ── Bulk reads (no symbol parameter = the whole board, one request) ───────────
+
+def get_premium_index_all() -> list:
+    """Funding and mark price for every perpetual, in ONE request (~945)."""
+    payload = _fetch("/fapi/v1/premiumIndex")
+    return payload if isinstance(payload, list) else [payload]
+
+
+def get_ticker_24h_all() -> list:
+    """24h change and quote volume for every symbol, in ONE request (~804)."""
+    payload = _fetch("/fapi/v1/ticker/24hr")
+    return payload if isinstance(payload, list) else [payload]
+
+
+def funding_intervals() -> Dict[str, float]:
+    """Funding interval in hours per symbol.
+
+    ``/fapi/v1/fundingInfo`` lists only symbols with NON-DEFAULT settings, and
+    that turns out to be most of the board: 820 of ~945 perps settle every 4
+    hours, not 8. Annualising everything at 8h would therefore halve the real
+    cost of carry for the majority of symbols. Anything absent from the list
+    uses the 8h default.
+    """
+    key = ("binance", "funding-intervals")
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+    out: Dict[str, float] = {}
+    try:
+        for row in _fetch("/fapi/v1/fundingInfo") or []:
+            hours = row.get("fundingIntervalHours")
+            if row.get("symbol") and hours:
+                out[row["symbol"]] = float(hours)
+    except Exception:
+        return {}  # callers fall back to the 8h default
+    _cache_put(key, out)
+    return out
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _f(value: Any) -> Optional[float]:
