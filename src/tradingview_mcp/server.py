@@ -107,6 +107,10 @@ from tradingview_mcp.core.services.market_structure_service import (
     analyze_market_breadth,
     rank_relative_strength,
 )
+from tradingview_mcp.core.services.trend_scan_service import (
+    rank_volatility,
+    scan_trend_strength,
+)
 from tradingview_mcp.core.services.crypto_analysis_service import (
     analyze_crypto_fibonacci,
     build_crypto_watchlist,
@@ -1543,6 +1547,83 @@ async def positioning(
         return await asyncio.to_thread(analyze_positioning, symbol, period, history_bars)
     except Exception as e:
         return exception_to_envelope(e, context="positioning")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Trend Strength Scan", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def trend_strength_scan(
+    exchange: str = "KUCOIN",
+    timeframe: str = "4h",
+    direction: str = "both",
+    min_adx: float = 25.0,
+    limit: int = 20,
+    min_rel_volume: Optional[float] = None,
+) -> dict:
+    """Rank a venue by trend strength rather than by today's move.
+
+    top_gainers answers "what moved". This answers "what is actually
+    trending": a symbol up 9% on one candle with ADX 14 is noise, one up 3%
+    with ADX 38 and +DI above -DI is a trend. coin_analysis shows these for
+    one symbol; nothing screened on them. One scanner request.
+
+    Args:
+        exchange: KUCOIN, BINANCE, BYBIT, MEXC, NASDAQ, NYSE, EGX, BIST, ...
+        timeframe: One of 5m, 15m, 1h, 4h, 1D, 1W, 1M
+        direction: "both", "bullish" (+DI > -DI) or "bearish"
+        min_adx: Minimum ADX, 0-100 — below ~25 is conventionally chop
+        limit: Rows to return, 1-100
+        min_rel_volume: Drop symbols below this relative volume
+
+    Returns:
+        dict with rows carrying adx, trend_strength, +DI/-DI and their spread,
+        the Parabolic SAR side and EMA50 position. On ANY failure returns a
+        structured error envelope.
+    """
+    try:
+        exchange = validate_exchange(exchange, "kucoin")
+        timeframe = validate_timeframe(timeframe, "4h")
+        return await asyncio.to_thread(
+            scan_trend_strength, exchange, timeframe, direction, min_adx,
+            limit, min_rel_volume,
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="trend_strength_scan")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Volatility Ranking", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def volatility_rank(
+    exchange: str = "KUCOIN",
+    window: str = "1D",
+    order: str = "highest",
+    limit: int = 20,
+    min_rel_volume: Optional[float] = None,
+) -> dict:
+    """Rank a venue by realised volatility, with ATR as a price-relative check.
+
+    Position size follows volatility: the same percentage stop is a different
+    trade on a 2%-a-day symbol than on a 15%-a-day one. Gives the ATR sizing
+    in crypto_trade_plan the venue-wide context it otherwise lacks.
+
+    Volatility columns exist only on the daily timeframe, so this always
+    queries 1D and says so.
+
+    Args:
+        exchange: KUCOIN, BINANCE, BYBIT, MEXC, NASDAQ, NYSE, EGX, BIST, ...
+        window: 1D, 1W or 1M
+        order: "highest" or "lowest" volatility first
+        limit: Rows to return, 1-100
+        min_rel_volume: Drop symbols below this relative volume
+
+    Returns:
+        dict with ranked rows (volatility, ATR, ATR as a percent of price) and
+        the venue median. On ANY failure returns a structured error envelope.
+    """
+    try:
+        exchange = validate_exchange(exchange, "kucoin")
+        return await asyncio.to_thread(
+            rank_volatility, exchange, window, order, limit, min_rel_volume
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="volatility_rank")
 
 
 @mcp.tool(annotations=ToolAnnotations(title="Funding Screener", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
