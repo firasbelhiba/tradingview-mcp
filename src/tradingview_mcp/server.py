@@ -126,6 +126,14 @@ from tradingview_mcp.core.services.copytrading_service import (
 from tradingview_mcp.core.services.copytrading_trades_service import (
     get_lead_trader_trades,
 )
+from tradingview_mcp.core.services.paper_trading_service import (
+    close_trade as _paper_close,
+    modify_trade as _paper_modify,
+    open_trade as _paper_open,
+    reset_wallet as _paper_reset,
+    trade_history as _paper_history,
+    wallet_status as _paper_status,
+)
 from tradingview_mcp.core.services.crypto_analysis_service import (
     analyze_crypto_fibonacci,
     build_crypto_watchlist,
@@ -1962,6 +1970,190 @@ async def squeeze_scan(
         )
     except Exception as e:
         return exception_to_envelope(e, context="squeeze_scan")
+
+
+# -- Paper trading -------------------------------------------------------------
+#
+# A SIMULATOR. This package holds no exchange credentials and calls no
+# authenticated endpoint, so these tools cannot place a real order or move real
+# money however they are asked. A position is a row in a local SQLite file,
+# priced against live market data.
+#
+# They write state, so their annotations say so and they are named in
+# test_tool_annotations' stateful allowlist.
+
+@mcp.tool(annotations=ToolAnnotations(title="Reset Paper Wallet", readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False))
+async def paper_wallet_reset(
+    balance: float = 10000.0,
+    currency: str = "USDT",
+    fee_pct: float = 0.05,
+    max_leverage: float = 20.0,
+    note: Optional[str] = None,
+) -> dict:
+    """Create a simulated wallet, or wipe it and start again.
+
+    SIMULATED: no real order, no real money, no exchange key. The wallet is a
+    local database marked against live prices.
+
+    Destructive - every position, open and closed, is deleted and the history
+    cannot be recovered.
+
+    Args:
+        balance: Starting balance, 10 to 100,000,000
+        currency: Quote currency label, e.g. USDT
+        fee_pct: Taker fee charged per side, percent (0.05 is Binance-like)
+        max_leverage: Ceiling this wallet will allow, 1-125
+        note: Free text, e.g. what strategy this wallet is testing
+
+    Returns:
+        dict with the new wallet and how many positions were discarded. On ANY
+        failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            _paper_reset, balance, currency, fee_pct, max_leverage, note
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="paper_wallet_reset")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Open Paper Trade", readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True))
+async def paper_trade_open(
+    symbol: str,
+    side: str,
+    notional: float,
+    market: str = "futures",
+    leverage: float = 1.0,
+    stop_loss: Optional[float] = None,
+    take_profit: Optional[float] = None,
+    note: Optional[str] = None,
+) -> dict:
+    """Open a simulated position at the current real market price.
+
+    SIMULATED: nothing is sent to an exchange.
+
+    Spot is long-only and unlevered. Futures allow shorts and leverage, post
+    margin, pay real funding and can be liquidated.
+
+    A stop or target on the wrong side of entry is refused rather than filled
+    on the next check - that is a typo, not a strategy.
+
+    Args:
+        symbol: Pair, e.g. BTCUSDT
+        side: "long" or "short" (short requires market="futures")
+        notional: Position value in the wallet's currency; margin is
+            notional / leverage
+        market: "futures" or "spot"
+        leverage: 1 to the wallet's max (futures only)
+        stop_loss: Price to exit at a loss - below entry for a long
+        take_profit: Price to exit at a gain - above entry for a long
+        note: Why this trade, so the history is reviewable later
+
+    Returns:
+        dict with the opened position, a risk block (loss at stop, percent of
+        wallet, R:R) and the liquidation price. On ANY failure returns a
+        structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            _paper_open, symbol, side, notional, market, leverage,
+            stop_loss, take_profit, note,
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="paper_trade_open")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Close Paper Trade", readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True))
+async def paper_trade_close(position_id: int, note: Optional[str] = None) -> dict:
+    """Close a simulated position at the current real market price.
+
+    Settles first: if the stop, target or liquidation price was already
+    reached, the recorded exit is that level - not the current price.
+
+    Args:
+        position_id: From paper_trade_open or paper_wallet_status
+        note: Why it was closed
+
+    Returns:
+        dict with entry and exit, fees, funding paid, realised PnL and return
+        on margin. On ANY failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(_paper_close, position_id, note)
+    except Exception as e:
+        return exception_to_envelope(e, context="paper_trade_close")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Modify Paper Trade", readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True))
+async def paper_trade_modify(
+    position_id: int,
+    stop_loss: Optional[float] = None,
+    take_profit: Optional[float] = None,
+) -> dict:
+    """Set or move the stop and target on an open simulated position.
+
+    Useful for trailing a stop as a trade works. A level that would fill
+    immediately against the current price is refused.
+
+    Args:
+        position_id: From paper_trade_open or paper_wallet_status
+        stop_loss: New stop price
+        take_profit: New target price
+
+    Returns:
+        dict with the updated levels and the current price. On ANY failure
+        returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            _paper_modify, position_id, stop_loss, take_profit
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="paper_trade_modify")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Paper Wallet Status", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def paper_wallet_status(include_closed: int = 0) -> dict:
+    """The simulated wallet: cash, open positions marked live, and equity.
+
+    Every call settles first, so stops and targets reached since the last look
+    are applied against the bar highs and lows that reached them - a stop-out
+    price later recovered from still counts.
+
+    Args:
+        include_closed: Also return this many recent closed positions
+
+    Returns:
+        dict with the wallet (cash, margin posted, unrealised PnL, equity,
+        total return), open positions with liquidation prices, and whatever
+        settled on this check. On ANY failure returns a structured error
+        envelope.
+    """
+    try:
+        return await asyncio.to_thread(_paper_status, include_closed)
+    except Exception as e:
+        return exception_to_envelope(e, context="paper_wallet_status")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Paper Trade History", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def paper_trade_history(limit: int = 50) -> dict:
+    """Closed simulated trades and the performance they add up to.
+
+    Win rate, profit factor, expectancy, realised drawdown sequenced by close
+    time, and what fees and funding consumed - so a strategy that only works
+    before costs is visible as such.
+
+    Args:
+        limit: Trades to return, 1-500
+
+    Returns:
+        dict with trades and a statistics block. On ANY failure returns a
+        structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(_paper_history, limit)
+    except Exception as e:
+        return exception_to_envelope(e, context="paper_trade_history")
 
 
 # ── Alerts ─────────────────────────────────────────────────────────────────────

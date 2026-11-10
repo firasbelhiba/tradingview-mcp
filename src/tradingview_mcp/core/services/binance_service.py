@@ -279,6 +279,11 @@ def get_klines(symbol: str, timeframe: str = "4h", limit: int = 500,
                 "date": time.strftime(
                     "%Y-%m-%d %H:%M", time.gmtime(open_ms / 1000.0)
                 ),
+                # Kept alongside the formatted date because the paper-trading
+                # settler compares bar times against a position's open
+                # timestamp, and the "%Y-%m-%d %H:%M" string has already lost
+                # the precision that comparison needs.
+                "open_ms": open_ms,
                 "open": float(k[1]),
                 "high": float(k[2]),
                 "low": float(k[3]),

@@ -25,6 +25,10 @@ from tradingview_mcp.server import mcp
 _STATEFUL_TOOLS = {
     "alert_create": "writes one alert row to the local SQLite store",
     "alert_manage": "deletes or re-arms a stored alert row",
+    "paper_wallet_reset": "wipes and recreates the simulated wallet",
+    "paper_trade_open": "writes a simulated position row",
+    "paper_trade_close": "closes a simulated position row",
+    "paper_trade_modify": "updates a simulated position's stop/target",
 }
 
 
@@ -79,7 +83,7 @@ def test_every_tool_explicitly_declares_destructiveness():
         t.name for t in _all_tools()
         if t.annotations and t.annotations.destructiveHint is True
     }
-    assert destructive <= {"alert_manage"}, (
+    assert destructive <= {"alert_manage", "paper_wallet_reset"}, (
         f"unexpected tools declaring destructiveHint=True: {sorted(destructive)}"
     )
 
