@@ -1,12 +1,19 @@
 """
-Binance Futures Service — perpetual positioning data.
+Binance Service — positioning feeds and OHLC candles.
 
-The server's other 47 tools all read price and volume. None reads
-*positioning*: who is on which side, what they are paying to stay there, and
-whether open interest is building or unwinding. TradingView's scanner cannot
-supply it — ``funding_rate`` and ``open_interest`` come back null even for
-perp tickers like ``BINANCE:BTCUSDT.P`` that otherwise resolve — so this
-module talks to Binance's public futures API directly.
+Two jobs, both over Binance's public API with no key:
+
+  * **Positioning** (futures only): funding, open interest, the long/short
+    splits and taker flow. TradingView's scanner cannot supply these —
+    ``funding_rate`` and ``open_interest`` come back null even for perp
+    tickers like ``BINANCE:BTCUSDT.P`` that otherwise resolve.
+  * **Candles**: native OHLC klines at every interval this server supports,
+    from the futures book first and the spot book second.
+
+Measured against TradingView's 4h bars, Binance klines land within 0.01-0.05%
+where the old Yahoo path was 0.10-0.11% out, and they need no resampling.
+Coverage is the trade-off: of KuCoin's 1,006 symbols only 326 (32%) list on
+Binance at all, so callers keep a fallback for the long tail.
 
 No API key: every endpoint used here is public and unauthenticated.
 
@@ -34,9 +41,20 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from tradingview_mcp.core.errors import ErrorCode, make_error
 
-_BASE = "https://fapi.binance.com"
+_BASE = "https://fapi.binance.com"      # USD-M futures
+_SPOT_BASE = "https://api.binance.com"  # spot
 _UA = "tradingview-mcp/0.9.0 positioning"
 _TIMEOUT = 15
+
+# Candle intervals. Every timeframe this server supports maps to a NATIVE
+# Binance interval, so candles need no resampling — unlike the Yahoo path,
+# which serves 1h and 1d only and had to build 4h bars itself.
+_KLINE_INTERVAL = {
+    "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h", "2h": "2h",
+    "4h": "4h", "6h": "6h", "8h": "8h", "12h": "12h",
+    "1d": "1d", "1D": "1d", "3d": "3d", "1w": "1w", "1W": "1w", "1M": "1M",
+}
+_MAX_KLINES = 1500  # Binance's per-request ceiling
 
 # Binance's data endpoints accept their own period vocabulary. Our timeframe
 # strings differ in case ("1D" vs "1d"), and the sub-5m intervals this server
@@ -92,11 +110,17 @@ class BinanceUnavailable(RuntimeError):
     """Binance could not be reached, or answered with an error status."""
 
 
-def _fetch(path: str, params: Optional[Dict[str, Any]] = None) -> Any:
-    """GET a public endpoint, with cache, retries and a stale fallback."""
+def _fetch(path: str, params: Optional[Dict[str, Any]] = None,
+           base: Optional[str] = None) -> Any:
+    """GET a public endpoint, with cache, retries and a stale fallback.
+
+    ``base`` selects the futures host (default) or the spot host; it is part
+    of the cache key, so the same path on both books cannot collide.
+    """
+    base = base or _BASE
     query = "&".join(f"{k}={v}" for k, v in sorted((params or {}).items()))
-    url = f"{_BASE}{path}" + (f"?{query}" if query else "")
-    key = ("binance", path, query)
+    url = f"{base}{path}" + (f"?{query}" if query else "")
+    key = ("binance", base, path, query)
 
     cached = _cache_get(key)
     if cached is not None:
@@ -189,6 +213,119 @@ def perp_symbol_for(symbol: str) -> str:
     if ":" in raw:
         raw = raw.split(":", 1)[1]
     return raw.replace("-", "").replace("/", "")
+
+
+# ── Candles ───────────────────────────────────────────────────────────────────
+
+def kline_interval_for(timeframe: str) -> Optional[str]:
+    """Translate one of this server's timeframes to a Binance kline interval."""
+    if not timeframe:
+        return None
+    return _KLINE_INTERVAL.get(timeframe) or _KLINE_INTERVAL.get(timeframe.lower())
+
+
+def kline_timeframes() -> List[str]:
+    return sorted(set(_KLINE_INTERVAL))
+
+
+def spot_symbols() -> List[str]:
+    """Every spot symbol currently TRADING on Binance."""
+    key = ("binance", "spot-universe")
+    cached = _cache_get(key, allow_stale=True)
+    if cached is not None:
+        return cached
+    info = _fetch("/api/v3/exchangeInfo", base=_SPOT_BASE)
+    syms = sorted(
+        s["symbol"] for s in info.get("symbols", [])
+        if s.get("status") == "TRADING"
+    )
+    _cache_put(key, syms)
+    return syms
+
+
+def get_klines(symbol: str, timeframe: str = "4h", limit: int = 500,
+               market: str = "futures") -> List[dict]:
+    """Native OHLC candles for ``symbol``.
+
+    Returns oldest-first dicts shaped like the rest of the package's candles
+    (``date``/``open``/``high``/``low``/``close``/``volume``), so the
+    indicator helpers take them unchanged.
+
+    The final candle is the one still forming — deliberate, since the scans
+    want the current bar — and carries ``complete: False``.
+    """
+    interval = kline_interval_for(timeframe)
+    if not interval:
+        raise ValueError(
+            f"timeframe {timeframe!r} has no Binance kline interval; "
+            f"supported: {', '.join(kline_timeframes())}"
+        )
+    base, path = (
+        (_SPOT_BASE, "/api/v3/klines") if market == "spot" else (_BASE, "/fapi/v1/klines")
+    )
+    raw = _fetch(
+        path,
+        {"symbol": symbol, "interval": interval, "limit": max(2, min(limit, _MAX_KLINES))},
+        base=base,
+    )
+    if not isinstance(raw, list):
+        raise BinanceUnavailable(f"unexpected klines payload for {symbol}")
+
+    out: List[dict] = []
+    for i, k in enumerate(raw):
+        try:
+            open_ms = int(k[0])
+            out.append({
+                "date": time.strftime(
+                    "%Y-%m-%d %H:%M", time.gmtime(open_ms / 1000.0)
+                ),
+                "open": float(k[1]),
+                "high": float(k[2]),
+                "low": float(k[3]),
+                "close": float(k[4]),
+                "volume": float(k[5]),
+                "complete": i < len(raw) - 1,
+            })
+        except (IndexError, TypeError, ValueError):
+            continue
+    return out
+
+
+def fetch_candles(symbol: str, timeframe: str = "4h",
+                  limit: int = 500) -> Tuple[List[dict], str]:
+    """Candles for ``symbol`` from the futures book, else the spot book.
+
+    Futures first because it tracks TradingView's reference most closely
+    (measured at 0.01-0.02% versus 0.01-0.06% for spot), and because more of
+    the liquid universe lists there. Returns ``(candles, source_label)``;
+    raises ``BinanceUnavailable`` when the symbol is on neither book, which is
+    the caller's cue to fall back to another provider.
+    """
+    attempts = []
+    try:
+        if symbol in set(perpetual_symbols()):
+            attempts.append(("futures", "Binance USD-M futures klines"))
+    except Exception:
+        pass
+    try:
+        if symbol in set(spot_symbols()):
+            attempts.append(("spot", "Binance spot klines"))
+    except Exception:
+        pass
+
+    last: Optional[BaseException] = None
+    for market, label in attempts:
+        try:
+            candles = get_klines(symbol, timeframe, limit, market)
+            if candles:
+                return candles, label
+        except Exception as exc:  # noqa: BLE001 - try the next book
+            last = exc
+
+    raise BinanceUnavailable(
+        f"{symbol} is not listed on Binance futures or spot"
+        + (f" ({last})" if last else "")
+    )
 
 
 # ── Raw reads ─────────────────────────────────────────────────────────────────

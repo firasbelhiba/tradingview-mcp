@@ -177,7 +177,7 @@ def test_bearish_divergence_detected(monkeypatch):
     rsi[8] = 75.0       # strong momentum at the first high
     rsi[20] = 65.0      # weaker at the higher high -> bearish divergence
 
-    monkeypatch.setattr(svc, "fetch_crypto_candles", lambda *a, **k: _flat_candles(n, highs))
+    monkeypatch.setattr(svc, "fetch_crypto_candles", lambda *a, **k: (_flat_candles(n, highs), "test source"))
     monkeypatch.setattr(svc, "calc_rsi", lambda closes, period=14: list(rsi))
 
     out = svc.detect_rsi_divergence("BTCUSDT", timeframe="4h", pivot_window=3)
@@ -201,7 +201,7 @@ def test_bullish_divergence_detected(monkeypatch):
     rsi[20] = 35.0      # higher RSI low -> bullish divergence
 
     monkeypatch.setattr(svc, "fetch_crypto_candles",
-                        lambda *a, **k: _flat_candles(n, lows=lows))
+                        lambda *a, **k: (_flat_candles(n, lows=lows), "test source"))
     monkeypatch.setattr(svc, "calc_rsi", lambda closes, period=14: list(rsi))
 
     out = svc.detect_rsi_divergence("ETHUSDT", timeframe="4h", pivot_window=3)
@@ -218,7 +218,7 @@ def test_no_divergence_when_rsi_confirms(monkeypatch):
     rsi[8] = 65.0
     rsi[20] = 75.0      # RSI confirms the higher high — no divergence
 
-    monkeypatch.setattr(svc, "fetch_crypto_candles", lambda *a, **k: _flat_candles(n, highs))
+    monkeypatch.setattr(svc, "fetch_crypto_candles", lambda *a, **k: (_flat_candles(n, highs), "test source"))
     monkeypatch.setattr(svc, "calc_rsi", lambda closes, period=14: list(rsi))
 
     out = svc.detect_rsi_divergence("BTCUSDT", timeframe="4h", pivot_window=3)
@@ -237,13 +237,16 @@ def test_divergence_rejects_out_of_range_params(kwargs):
 
 
 def test_divergence_rejects_timeframe_without_candles(monkeypatch):
-    out = svc.detect_rsi_divergence("BTCUSDT", timeframe="15m")
+    # 15m IS served now that Binance klines back these tools, so the test
+    # needs an interval no provider has.
+    out = svc.detect_rsi_divergence("BTCUSDT", timeframe="7s")
     assert out["error"]["code"] == "INVALID_TIMEFRAME"
     assert "1h" in out["error"]["supported"]
+    assert "15m" in out["error"]["supported"], "Binance serves 15m natively"
 
 
 def test_divergence_reports_too_few_candles(monkeypatch):
-    monkeypatch.setattr(svc, "fetch_crypto_candles", lambda *a, **k: _flat_candles(5))
+    monkeypatch.setattr(svc, "fetch_crypto_candles", lambda *a, **k: (_flat_candles(5), "test source"))
     out = svc.detect_rsi_divergence("BTCUSDT", timeframe="4h")
     assert out["error"]["code"] == "NO_DATA"
 
@@ -261,7 +264,7 @@ def _channel_candles(n, last_high, last_close, body_high=100.0, body_low=90.0):
 
 def test_donchian_breakout_up_detected(monkeypatch):
     candles = _channel_candles(30, last_high=120.0, last_close=115.0)
-    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, []))
+    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, [], {"test source": 1}))
     out = svc.scan_donchian_breakout(symbols=["BTCUSDT"], timeframe="1D", period=20)
     row = out["rows"][0]
     assert row["state"] == "breakout_up"
@@ -277,7 +280,7 @@ def test_donchian_channel_excludes_the_tested_bar(monkeypatch):
     # matches the prior high but closes below it — inside the channel, not a
     # breakout.
     candles = _channel_candles(30, last_high=100.0, last_close=99.0)
-    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, []))
+    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, [], {"test source": 1}))
     out = svc.scan_donchian_breakout(symbols=["BTCUSDT"], timeframe="1D", period=20)
     row = out["rows"][0]
     assert row["state"] == "inside_channel"
@@ -287,13 +290,13 @@ def test_donchian_channel_excludes_the_tested_bar(monkeypatch):
 
 def test_donchian_breakout_down_detected(monkeypatch):
     candles = _channel_candles(30, last_high=95.0, last_close=85.0)
-    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, []))
+    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, [], {"test source": 1}))
     out = svc.scan_donchian_breakout(symbols=["BTCUSDT"], timeframe="1D", period=20)
     assert out["rows"][0]["state"] == "breakout_down"
 
 
 def test_donchian_skips_symbols_with_too_few_candles(monkeypatch):
-    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": _flat_candles(5)}, []))
+    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": _flat_candles(5)}, [], {}))
     out = svc.scan_donchian_breakout(symbols=["BTCUSDT"], timeframe="1D", period=20)
     assert out["rows"] == []
     assert out["unavailable"] == ["BTCUSDT"]
@@ -308,8 +311,17 @@ def test_donchian_rejects_out_of_range_params(kwargs):
 
 
 def test_donchian_rejects_timeframe_without_candles():
-    out = svc.scan_donchian_breakout(symbols=["BTCUSDT"], timeframe="15m")
+    out = svc.scan_donchian_breakout(symbols=["BTCUSDT"], timeframe="7s")
     assert out["error"]["code"] == "INVALID_TIMEFRAME"
+
+
+def test_candle_timeframes_now_include_binance_native_intervals():
+    # The old Yahoo path served 1h/4h/1D only; Binance adds the rest natively.
+    supported = svc._supported_timeframes()
+    for tf in ("5m", "15m", "30m", "1h", "4h", "1D", "1W"):
+        assert tf in supported, tf
+    assert svc._timeframe_has_provider("15m") is True
+    assert svc._timeframe_has_provider("7s") is False
 
 
 # ── Supertrend scan ───────────────────────────────────────────────────────────
@@ -328,7 +340,7 @@ def _trending_candles(n, start=100.0, step=1.0):
 
 def test_supertrend_scan_reports_direction(monkeypatch):
     candles = _trending_candles(60, step=1.0)  # steady uptrend
-    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, []))
+    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, [], {"test source": 1}))
     out = svc.scan_supertrend(symbols=["BTCUSDT"], timeframe="4h")
     row = out["rows"][0]
     assert row["direction"] == "bullish"
@@ -342,7 +354,7 @@ def test_supertrend_scan_flags_a_flip(monkeypatch):
     # band (the bar range is 2, so the band sits ~6 below; a 15/bar drop
     # clears it). Direction must flip and land in the flips list.
     candles = _trending_candles(40, step=1.0) + _trending_candles(20, start=139.0, step=-15.0)
-    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, []))
+    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, [], {"test source": 1}))
     out = svc.scan_supertrend(symbols=["BTCUSDT"], timeframe="4h", flip_within=20)
     row = out["rows"][0]
     assert row["direction"] == "bearish"
@@ -355,7 +367,7 @@ def test_supertrend_marks_direction_unconfirmed_before_any_flip(monkeypatch):
     # pandas-ta and Pine seed the opposite way, so this run is exactly where
     # implementations legitimately disagree — it must not read as a signal.
     candles = _trending_candles(80, step=0.2)
-    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, []))
+    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, [], {"test source": 1}))
     out = svc.scan_supertrend(symbols=["BTCUSDT"], timeframe="4h")
     row = out["rows"][0]
     assert row["bars_since_flip"] is None
@@ -365,7 +377,7 @@ def test_supertrend_marks_direction_unconfirmed_before_any_flip(monkeypatch):
 
 def test_supertrend_marks_direction_confirmed_after_a_flip(monkeypatch):
     candles = _trending_candles(40, step=1.0) + _trending_candles(20, start=139.0, step=-15.0)
-    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, []))
+    monkeypatch.setattr(svc, "_gather_candles", lambda syms, tf: ({"BTCUSDT": candles}, [], {"test source": 1}))
     out = svc.scan_supertrend(symbols=["BTCUSDT"], timeframe="4h")
     assert out["rows"][0]["direction_confirmed"] is True
 
@@ -375,7 +387,7 @@ def test_supertrend_explicit_symbols_skip_the_universe_scan(monkeypatch):
         raise AssertionError("universe scan must not run when symbols are given")
     monkeypatch.setattr(svc, "_scan_universe", _boom)
     monkeypatch.setattr(svc, "_gather_candles",
-                        lambda syms, tf: ({"BTCUSDT": _trending_candles(60)}, []))
+                        lambda syms, tf: ({"BTCUSDT": _trending_candles(60)}, [], {}))
     out = svc.scan_supertrend(symbols=["BTCUSDT"], timeframe="4h")
     assert out["universe_note"] == "Explicit symbol list"
 

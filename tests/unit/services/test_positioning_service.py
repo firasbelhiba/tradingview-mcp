@@ -7,7 +7,7 @@ partial-failure behaviour.
 """
 import pytest
 
-from tradingview_mcp.core.services import binance_futures_service as bn
+from tradingview_mcp.core.services import binance_service as bn
 from tradingview_mcp.core.services import positioning_service as svc
 
 _PERP = "BTCUSDT"
@@ -362,7 +362,9 @@ def test_fetch_is_cached_within_the_ttl(monkeypatch):
 
 
 def test_stale_cache_serves_when_upstream_fails(monkeypatch):
-    key = ("binance", "/fapi/v1/test", "symbol=BTCUSDT")
+    # The cache key carries the base host now that spot and futures share
+    # this fetcher, so the same path on both books cannot collide.
+    key = ("binance", bn._BASE, "/fapi/v1/test", "symbol=BTCUSDT")
     bn._cache.clear()
     bn._cache_put(key, {"stale": True})
     # Age the entry past the fresh TTL but inside the stale window.

@@ -27,6 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Sequence
 
 from tradingview_mcp.core.errors import ErrorCode, make_error
+from tradingview_mcp.core.services import binance_service as bn
 from tradingview_mcp.core.services.coinlist import load_symbols
 from tradingview_mcp.core.services.indicators import (
     AVERAGE_VOLUME,
@@ -72,15 +73,39 @@ _YF_PLAN = {
     "1D": ("1d", "2y", 1),
 }
 
-_CANDLE_TIMEFRAMES = tuple(_YF_PLAN.keys())
+_CANDLE_TIMEFRAMES = tuple(_YF_PLAN.keys())  # what the Yahoo fallback can serve
+
+
+def _supported_timeframes() -> List[str]:
+    """Timeframes some provider can serve — Binance's native set plus Yahoo's."""
+    return sorted(set(bn.kline_timeframes()) | set(_YF_PLAN))
+
+
+def _timeframe_has_provider(timeframe: str) -> bool:
+    """Whether any provider could serve this timeframe.
+
+    Whether a given SYMBOL can be served is a separate question answered at
+    fetch time: a pair listed only on KuCoin falls back to Yahoo, which
+    serves 1h/4h/1D alone.
+    """
+    return bool(bn.kline_interval_for(timeframe)) or timeframe in _YF_PLAN
 
 # Quote currencies a crypto pair may be denominated in, longest first so that
 # USDT is stripped before USD.
 _QUOTE_ASSETS = ("USDT", "USDC", "BUSD", "FDUSD", "TUSD", "USD", "EUR", "BTC", "ETH")
 
-_MAX_SCAN_SYMBOLS = 40   # candle fetches per scan — each is one Yahoo request
+_MAX_SCAN_SYMBOLS = 40   # candle fetches per scan — one upstream request each
 _MAX_WATCHLIST = 30      # symbols per watchlist request (one scanner call)
 _FETCH_WORKERS = 8
+_KLINE_LIMIT = 500       # bars per Binance request (its ceiling is 1500)
+
+
+def binance_symbol_for(symbol: str) -> str:
+    """Strip an exchange prefix and separators to Binance's symbol spelling."""
+    raw = (symbol or "").strip().upper()
+    if ":" in raw:
+        raw = raw.split(":", 1)[1]
+    return raw.replace("-", "").replace("/", "")
 
 
 # ── Symbol helpers ────────────────────────────────────────────────────────────
@@ -189,25 +214,49 @@ def _resample(candles: List[dict], factor: int) -> List[dict]:
     return out
 
 
-def fetch_crypto_candles(symbol: str, timeframe: str = "4h") -> List[dict]:
-    """Return OHLC candles for a crypto pair at ``timeframe``.
+def fetch_crypto_candles(symbol: str, timeframe: str = "4h") -> tuple:
+    """Return ``(candles, source_label)`` for a crypto pair at ``timeframe``.
 
-    Raises ``ValueError`` for an unsupported timeframe and ``RuntimeError``
-    when the upstream fetch fails — callers wrap both into error envelopes.
+    Tiered by accuracy, then by coverage:
+
+      1. **Binance klines** (futures book, then spot). Native bars at every
+         timeframe, and measured against TradingView's 4h closes they sit
+         within 0.01-0.05% where the Yahoo path was 0.10-0.11% out.
+      2. **Yahoo**, resampled. Only 326 of KuCoin's 1,006 symbols list on
+         Binance at all, so the long tail still needs this — at 1h/4h/1D only,
+         since those are the intervals Yahoo serves.
+
+    The label is returned rather than assumed: the tools used to report
+    "Yahoo Finance" unconditionally, which would now be wrong for every
+    liquid pair.
+
+    Raises ``ValueError`` when no provider can serve the timeframe, and
+    ``RuntimeError`` when every provider fails.
     """
+    bn_symbol = binance_symbol_for(symbol)
+    if bn.kline_interval_for(timeframe):
+        try:
+            candles, label = bn.fetch_candles(bn_symbol, timeframe, limit=_KLINE_LIMIT)
+            if candles:
+                return candles, label
+        except Exception:
+            pass  # not on Binance, or Binance is unreachable — fall through
+
     if timeframe not in _YF_PLAN:
         raise ValueError(
-            f"timeframe {timeframe!r} has no candle source; "
-            f"supported: {', '.join(_CANDLE_TIMEFRAMES)}"
+            f"{bn_symbol} is not on Binance, and the fallback provider serves "
+            f"only {', '.join(_CANDLE_TIMEFRAMES)} — {timeframe!r} is unavailable "
+            "for this symbol"
         )
     interval, period, factor = _YF_PLAN[timeframe]
-    # The package's only OHLC provider. Private by name, but duplicating its
-    # Yahoo handling (proxy fallback, split/dividend adjustment) would be worse
-    # than importing it.
+    # The package's only other OHLC provider. Private by name, but duplicating
+    # its Yahoo handling (proxy fallback, split/dividend adjustment) would be
+    # worse than importing it.
     from tradingview_mcp.core.services.backtest_service import _fetch_ohlcv
 
-    candles = _fetch_ohlcv(yahoo_crypto_symbol(symbol), period, interval)
-    return _resample(candles, factor)
+    candles = _resample(_fetch_ohlcv(yahoo_crypto_symbol(symbol), period, interval), factor)
+    suffix = " (1h resampled to 4h)" if timeframe == "4h" else ""
+    return candles, f"Yahoo Finance{suffix}"
 
 
 def _ohlc(candles: Sequence[dict]) -> tuple:
@@ -647,17 +696,17 @@ def detect_rsi_divergence(
         )
 
     try:
-        candles = fetch_crypto_candles(symbol, timeframe)
+        candles, candle_source = fetch_crypto_candles(symbol, timeframe)
     except ValueError as exc:
         return make_error(
-            ErrorCode.INVALID_TIMEFRAME, str(exc), supported=list(_CANDLE_TIMEFRAMES)
+            ErrorCode.INVALID_TIMEFRAME, str(exc), supported=_supported_timeframes()
         )
     except Exception as exc:
         return make_error(
             ErrorCode.UPSTREAM_ERROR,
             f"Candle fetch failed: {exc}",
             symbol=symbol,
-            yahoo_symbol=yahoo_crypto_symbol(symbol),
+            binance_symbol=binance_symbol_for(symbol),
         )
 
     if len(candles) < rsi_period + 2 * pivot_window + 5:
@@ -665,7 +714,7 @@ def detect_rsi_divergence(
             ErrorCode.NO_DATA,
             f"Only {len(candles)} candles available — too few for divergence detection",
             symbol=symbol,
-            yahoo_symbol=yahoo_crypto_symbol(symbol),
+            candle_source=candle_source,
         )
 
     candles = candles[-lookback:]
@@ -703,10 +752,9 @@ def detect_rsi_divergence(
     last_rsi = _last_not_none(rsi)
     return {
         "symbol": symbol.upper(),
-        "yahoo_symbol": yahoo_crypto_symbol(symbol),
         "timeframe": timeframe,
         "candles_analyzed": len(candles),
-        "candle_source": "Yahoo Finance" + (" (1h resampled to 4h)" if timeframe == "4h" else ""),
+        "candle_source": candle_source,
         "rsi_period": rsi_period,
         "pivot_window": pivot_window,
         "current_price": closes[-1],
@@ -760,23 +808,30 @@ def _scan_universe(exchange: str, timeframe: str, limit: int) -> tuple:
 
 
 def _gather_candles(symbols: Sequence[str], timeframe: str) -> tuple:
-    """Fetch candles for several symbols concurrently. Returns (ok, failed)."""
+    """Fetch candles for several symbols concurrently.
+
+    Returns ``(ok, failed, sources)`` where ``sources`` counts how many
+    symbols each provider served — a scan can legitimately mix Binance and
+    Yahoo bars, and the result says so rather than implying one source.
+    """
     ok: Dict[str, List[dict]] = {}
     failed: List[str] = []
+    sources: Dict[str, int] = {}
     with ThreadPoolExecutor(max_workers=_FETCH_WORKERS) as pool:
         futures = {pool.submit(fetch_crypto_candles, s, timeframe): s for s in symbols}
         for fut in as_completed(futures):
             sym = futures[fut]
             try:
-                candles = fut.result()
+                candles, source = fut.result()
             except Exception:
                 failed.append(sym)
                 continue
             if candles:
                 ok[sym] = candles
+                sources[source] = sources.get(source, 0) + 1
             else:
                 failed.append(sym)
-    return ok, failed
+    return ok, failed, sources
 
 
 def _resolve_scan_symbols(
@@ -830,11 +885,11 @@ def scan_supertrend(
         return make_error(
             ErrorCode.INVALID_PARAMETER, f"multiplier must be 0.5-10, got {multiplier}"
         )
-    if timeframe not in _YF_PLAN:
+    if not _timeframe_has_provider(timeframe):
         return make_error(
             ErrorCode.INVALID_TIMEFRAME,
             f"timeframe {timeframe!r} has no candle source",
-            supported=list(_CANDLE_TIMEFRAMES),
+            supported=_supported_timeframes(),
         )
 
     picked, universe_note = _resolve_scan_symbols(symbols, exchange, timeframe, max_symbols)
@@ -843,7 +898,7 @@ def scan_supertrend(
             ErrorCode.NO_DATA, f"No symbols to scan for {exchange}", exchange=exchange
         )
 
-    candle_map, failed = _gather_candles(picked, timeframe)
+    candle_map, failed, sources = _gather_candles(picked, timeframe)
     rows: List[dict] = []
     for sym, candles in candle_map.items():
         if len(candles) < atr_period + 5:
@@ -895,7 +950,7 @@ def scan_supertrend(
         "exchange": exchange.upper(),
         "timeframe": timeframe,
         "indicator": f"Supertrend (ATR {atr_period}, x{multiplier})",
-        "candle_source": "Yahoo Finance" + (" (1h resampled to 4h)" if timeframe == "4h" else ""),
+        "candle_sources": sources or None,
         "universe_note": universe_note,
         "scanned": len(candle_map),
         "flips": [r for r in rows if r["just_flipped"]],
@@ -934,11 +989,11 @@ def scan_donchian_breakout(
             ErrorCode.INVALID_PARAMETER,
             f"max_symbols must be 1-{_MAX_SCAN_SYMBOLS}, got {max_symbols}",
         )
-    if timeframe not in _YF_PLAN:
+    if not _timeframe_has_provider(timeframe):
         return make_error(
             ErrorCode.INVALID_TIMEFRAME,
             f"timeframe {timeframe!r} has no candle source",
-            supported=list(_CANDLE_TIMEFRAMES),
+            supported=_supported_timeframes(),
         )
 
     picked, universe_note = _resolve_scan_symbols(symbols, exchange, timeframe, max_symbols)
@@ -947,7 +1002,7 @@ def scan_donchian_breakout(
             ErrorCode.NO_DATA, f"No symbols to scan for {exchange}", exchange=exchange
         )
 
-    candle_map, failed = _gather_candles(picked, timeframe)
+    candle_map, failed, sources = _gather_candles(picked, timeframe)
     rows: List[dict] = []
     for sym, candles in candle_map.items():
         if len(candles) < period + 2:
@@ -990,7 +1045,7 @@ def scan_donchian_breakout(
         "exchange": exchange.upper(),
         "timeframe": timeframe,
         "indicator": f"Donchian Channel ({period} bars, measured on prior bars)",
-        "candle_source": "Yahoo Finance" + (" (1h resampled to 4h)" if timeframe == "4h" else ""),
+        "candle_sources": sources or None,
         "universe_note": universe_note,
         "scanned": len(candle_map),
         "breakouts": [r for r in rows if r["breakout"]],

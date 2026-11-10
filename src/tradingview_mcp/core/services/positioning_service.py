@@ -1,7 +1,7 @@
 """
 Positioning Service — who is on which side of a perpetual, and what it costs.
 
-Interpretation layer over ``binance_futures_service``, which does the fetching.
+Interpretation layer over ``binance_service``, which does the fetching.
 The server's price-and-volume tools cannot see any of this: funding paid,
 open interest building or unwinding, how the crowd is split, and how the
 largest traders are split against it.
@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from tradingview_mcp.core.errors import ErrorCode, make_error
-from tradingview_mcp.core.services import binance_futures_service as bn
+from tradingview_mcp.core.services import binance_service as bn
 
 # Written-down thresholds.
 _FUNDING_RICH_PCT = 0.05      # per funding interval: longs paying a lot
