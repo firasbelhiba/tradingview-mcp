@@ -90,6 +90,14 @@ from tradingview_mcp.core.services.backtest_service import (
     compare_strategies as _compare_strategies,
     walk_forward_backtest,
 )
+from tradingview_mcp.core.services.crypto_analysis_service import (
+    analyze_crypto_fibonacci,
+    build_crypto_watchlist,
+    detect_rsi_divergence,
+    generate_crypto_trade_plan,
+    scan_donchian_breakout,
+    scan_supertrend,
+)
 from tradingview_mcp.core.utils.validators import (
     validate_timeframe,
     validate_exchange,
@@ -121,7 +129,9 @@ mcp = FastMCP(
         "agriculture, rates, forex, crypto futures). "
         "Tools: top_gainers, top_losers, bollinger_scan, coin_analysis, multi_agent_analysis, "
         "volume_breakout_scanner, futures_market_overview, futures_top_movers, "
-        "futures_category_snapshot, futures_watchlist, egx_market_overview, and more."
+        "futures_category_snapshot, futures_watchlist, egx_market_overview, "
+        "crypto_trade_plan, crypto_fibonacci_retracement, crypto_watchlist, "
+        "rsi_divergence, supertrend_scan, donchian_breakout_scan, and more."
     ),
 )
 
@@ -1175,6 +1185,230 @@ async def stock_prices(tickers: str) -> dict:
         return make_error(ErrorCode.INVALID_PARAMETER, str(e))
     except Exception as e:
         return make_error(ErrorCode.UPSTREAM_ERROR, f"price lookup failed: {e}")
+
+
+# ── Crypto swing-trading tools ─────────────────────────────────────────────────
+
+@mcp.tool(annotations=ToolAnnotations(title="Crypto Trade Plan", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def crypto_trade_plan(
+    symbol: str,
+    exchange: str = "KUCOIN",
+    timeframe: str = "4h",
+    account_size: Optional[float] = None,
+    risk_pct: float = 1.0,
+) -> dict:
+    """Entry, stop, targets and R:R for a crypto pair, with optional sizing.
+
+    The crypto counterpart of egx_trade_plan. Entry/stop/targets come from the
+    same shared setup builder, so they always describe one coherent trade
+    (stop < entry < target_1 for longs) with per-scenario plans under
+    ``scenarios``.
+
+    Args:
+        symbol: Pair symbol, e.g. BTCUSDT
+        exchange: KUCOIN, BINANCE, BYBIT, MEXC, BITGET, OKX, COINBASE, GATEIO
+        timeframe: One of 5m, 15m, 1h, 4h, 1D, 1W, 1M (4h suits swing trades)
+        account_size: Account value in quote currency; omit to skip sizing
+        risk_pct: Percent of the account risked on the trade (default 1.0)
+
+    Returns:
+        dict with trade_setup, position_sizing (when account_size is given)
+        and an indicator context block. On ANY failure returns a structured
+        error envelope ``{"error": {"code": ..., "retryable": ...}}``.
+    """
+    try:
+        exchange = validate_exchange(exchange, "kucoin")
+        timeframe = validate_timeframe(timeframe, "4h")
+        return await asyncio.to_thread(
+            generate_crypto_trade_plan, symbol, exchange, timeframe, account_size, risk_pct
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="crypto_trade_plan")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Crypto Fibonacci Retracement", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def crypto_fibonacci_retracement(
+    symbol: str,
+    exchange: str = "KUCOIN",
+    lookback: str = "52W",
+    timeframe: str = "1D",
+) -> dict:
+    """Fibonacci retracement and extension levels for a crypto pair.
+
+    Swing high/low come from the scanner's period-extreme columns (one
+    request, no candle download); the level maths is shared with
+    egx_fibonacci_retracement.
+
+    Args:
+        symbol: Pair symbol, e.g. BTCUSDT
+        exchange: KUCOIN, BINANCE, BYBIT, MEXC, BITGET, OKX, COINBASE, GATEIO
+        lookback: Swing window — 1M, 3M, 6M, 52W or ALL
+        timeframe: Interval for the RSI/EMA/ATR context (default 1D)
+
+    Returns:
+        dict with retracement_levels, extension_levels, price_position and
+        context. On ANY failure returns a structured error envelope.
+    """
+    try:
+        exchange = validate_exchange(exchange, "kucoin")
+        timeframe = validate_timeframe(timeframe, "1D")
+        return await asyncio.to_thread(
+            analyze_crypto_fibonacci, symbol, exchange, lookback, timeframe
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="crypto_fibonacci_retracement")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Crypto Watchlist", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def crypto_watchlist(
+    symbols: list[str],
+    exchange: str = "KUCOIN",
+    timeframe: str = "4h",
+) -> dict:
+    """One scored row per symbol in a single scanner request.
+
+    Use this instead of calling coin_analysis once per pair: a 20-pair
+    watchlist costs one upstream request rather than twenty.
+
+    Args:
+        symbols: Pair symbols, e.g. ["BTCUSDT", "ETHUSDT", "SOLUSDT"] (max 30)
+        exchange: KUCOIN, BINANCE, BYBIT, MEXC, BITGET, OKX, COINBASE, GATEIO
+        timeframe: One of 5m, 15m, 1h, 4h, 1D, 1W, 1M
+
+    Returns:
+        dict with rows (price, change_pct, rsi, rsi_zone, ema50, trend, atr,
+        volume_ratio, rating) sorted by change, plus not_found for symbols the
+        scanner doesn't know. On ANY failure returns a structured error
+        envelope.
+    """
+    try:
+        exchange = validate_exchange(exchange, "kucoin")
+        timeframe = validate_timeframe(timeframe, "4h")
+        return await asyncio.to_thread(build_crypto_watchlist, symbols, exchange, timeframe)
+    except Exception as e:
+        return exception_to_envelope(e, context="crypto_watchlist")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="RSI Divergence Detector", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def rsi_divergence(
+    symbol: str,
+    exchange: str = "KUCOIN",
+    timeframe: str = "4h",
+    lookback: int = 60,
+    pivot_window: int = 3,
+    rsi_period: int = 14,
+) -> dict:
+    """Bullish / bearish RSI divergence between the two most recent pivots.
+
+    Bearish: price prints a higher pivot high while RSI prints a lower one.
+    Bullish: price prints a lower pivot low while RSI does not. Pivots need
+    ``pivot_window`` bars clear on both sides, so the forming bar is never
+    treated as a pivot.
+
+    Needs real candles, so the timeframe must be 1h, 4h or 1D (4h bars are
+    resampled from 1h).
+
+    Args:
+        symbol: Pair symbol, e.g. BTCUSDT
+        exchange: KUCOIN, BINANCE, BYBIT, MEXC, BITGET, OKX, COINBASE, GATEIO
+        timeframe: 1h, 4h or 1D
+        lookback: Bars to search, 20-300 (default 60)
+        pivot_window: Bars clear either side of a pivot, 1-10 (default 3)
+        rsi_period: RSI period, 2-50 (default 14)
+
+    Returns:
+        dict with divergences (type, the two pivots compared, strength,
+        bars_since) and divergence_found. On ANY failure returns a structured
+        error envelope.
+    """
+    try:
+        exchange = validate_exchange(exchange, "kucoin")
+        return await asyncio.to_thread(
+            detect_rsi_divergence, symbol, exchange, timeframe, lookback, pivot_window, rsi_period
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="rsi_divergence")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Supertrend Trend Scan", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def supertrend_scan(
+    exchange: str = "KUCOIN",
+    timeframe: str = "4h",
+    symbols: Optional[list[str]] = None,
+    max_symbols: int = 15,
+    flip_within: int = 3,
+    atr_period: int = 10,
+    multiplier: float = 3.0,
+) -> dict:
+    """True Supertrend direction, and recent flips, across crypto pairs.
+
+    Supertrend is recursive — each bar's band depends on the previous bar's —
+    so it is computed from real candles rather than a scanner column. Candles
+    cost one request per symbol, so omitting ``symbols`` scans the exchange's
+    most liquid names (ranked in one scanner request) rather than every pair;
+    ``universe_note`` in the result says which set was used.
+
+    Args:
+        exchange: KUCOIN, BINANCE, BYBIT, MEXC, BITGET, OKX, COINBASE, GATEIO
+        timeframe: 1h, 4h or 1D
+        symbols: Explicit pairs to scan; omit for the liquidity-ranked set
+        max_symbols: Pairs to fetch candles for, 1-40 (default 15)
+        flip_within: Flag flips within this many bars, 1-20 (default 3)
+        atr_period: Supertrend ATR period, 2-50 (default 10)
+        multiplier: Supertrend ATR multiplier, 0.5-10 (default 3.0)
+
+    Returns:
+        dict with flips (the just-flipped subset) and rows (direction,
+        supertrend_line, distance_pct, atr_distance, bars_since_flip). On ANY
+        failure returns a structured error envelope.
+    """
+    try:
+        exchange = validate_exchange(exchange, "kucoin")
+        return await asyncio.to_thread(
+            scan_supertrend, exchange, timeframe, symbols, max_symbols,
+            flip_within, atr_period, multiplier,
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="supertrend_scan")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Donchian Breakout Scan", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def donchian_breakout_scan(
+    exchange: str = "KUCOIN",
+    timeframe: str = "1D",
+    symbols: Optional[list[str]] = None,
+    period: int = 20,
+    max_symbols: int = 15,
+) -> dict:
+    """Donchian channel breakouts across crypto pairs.
+
+    The channel is measured on the bars BEFORE the one being tested, so a
+    close breaking out is compared against the prior window's extreme — not
+    against a channel that already contains it.
+
+    Candles cost one request per symbol, so omitting ``symbols`` scans the
+    exchange's most liquid names; ``universe_note`` says which set was used.
+
+    Args:
+        exchange: KUCOIN, BINANCE, BYBIT, MEXC, BITGET, OKX, COINBASE, GATEIO
+        timeframe: 1h, 4h or 1D
+        symbols: Explicit pairs to scan; omit for the liquidity-ranked set
+        period: Channel lookback in bars, 5-100 (default 20)
+        max_symbols: Pairs to fetch candles for, 1-40 (default 15)
+
+    Returns:
+        dict with breakouts (the breaking-out subset) and rows (state,
+        channel_upper/lower/middle, channel_width_pct,
+        position_in_channel_pct). On ANY failure returns a structured error
+        envelope.
+    """
+    try:
+        exchange = validate_exchange(exchange, "kucoin")
+        return await asyncio.to_thread(
+            scan_donchian_breakout, exchange, timeframe, symbols, period, max_symbols
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="donchian_breakout_scan")
 
 
 # ── Resource ───────────────────────────────────────────────────────────────────
