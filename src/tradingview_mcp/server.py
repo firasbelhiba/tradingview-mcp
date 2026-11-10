@@ -111,6 +111,10 @@ from tradingview_mcp.core.services.trend_scan_service import (
     rank_volatility,
     scan_trend_strength,
 )
+from tradingview_mcp.core.services.correlation_service import (
+    analyze_correlation,
+    analyze_seasonality,
+)
 from tradingview_mcp.core.services.crypto_analysis_service import (
     analyze_crypto_fibonacci,
     build_crypto_watchlist,
@@ -1547,6 +1551,73 @@ async def positioning(
         return await asyncio.to_thread(analyze_positioning, symbol, period, history_bars)
     except Exception as e:
         return exception_to_envelope(e, context="positioning")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="BTC Correlation and Beta", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def correlation(
+    symbols: list[str],
+    benchmark: str = "BTCUSDT",
+    timeframe: str = "4h",
+    lookback: int = 180,
+) -> dict:
+    """Is this its own trade, or leveraged BTC?
+
+    The macro tools keep reporting ALT_RISK and high BTC dominance; this makes
+    the implication concrete per symbol. An alt with beta 1.6 and r-squared
+    0.9 is not a diversifying position — it is a leveraged bet on the
+    benchmark, and five of them is one trade in five tickets.
+
+    Returns are paired by bar timestamp, not by position, so a gap or a
+    different history start cannot mis-pair two symbols.
+
+    Args:
+        symbols: Pairs to measure, max 20
+        benchmark: Pair to measure against (BTCUSDT by default)
+        timeframe: Candle interval
+        lookback: Bars to use, 40-1000
+
+    Returns:
+        dict with correlation, r_squared, beta, observation count and a plain
+        reading per symbol. On ANY failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            analyze_correlation, symbols, benchmark, timeframe, lookback
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="correlation")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Seasonality", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def seasonality(
+    symbol: str,
+    timeframe: str = "4h",
+    lookback: int = 500,
+) -> dict:
+    """Average return by weekday and by hour of day (UTC).
+
+    Crypto trades 24/7, so an hour-of-day distribution genuinely exists —
+    unlike equities, where it would just describe the session.
+
+    Every bucket carries its sample count and a thin_sample flag, and thin
+    buckets are excluded from best/worst: a weekday with six observations is
+    not evidence.
+
+    Args:
+        symbol: Pair to analyse
+        timeframe: Candle interval — hourly buckets need an intraday interval
+        lookback: Bars to use, 50-1500
+
+    Returns:
+        dict with by_weekday, by_hour_utc, and best/worst buckets. On ANY
+        failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            analyze_seasonality, symbol, timeframe, lookback
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="seasonality")
 
 
 @mcp.tool(annotations=ToolAnnotations(title="Trend Strength Scan", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
