@@ -90,6 +90,10 @@ from tradingview_mcp.core.services.backtest_service import (
     compare_strategies as _compare_strategies,
     walk_forward_backtest,
 )
+from tradingview_mcp.core.services.market_structure_service import (
+    analyze_market_breadth,
+    rank_relative_strength,
+)
 from tradingview_mcp.core.services.crypto_analysis_service import (
     analyze_crypto_fibonacci,
     build_crypto_watchlist,
@@ -1409,6 +1413,84 @@ async def donchian_breakout_scan(
         )
     except Exception as e:
         return exception_to_envelope(e, context="donchian_breakout_scan")
+
+
+# ── Market structure ───────────────────────────────────────────────────────────
+
+@mcp.tool(annotations=ToolAnnotations(title="Market Breadth", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def market_breadth(
+    exchange: str = "KUCOIN",
+    timeframe: str = "1D",
+    min_rel_volume: Optional[float] = None,
+) -> dict:
+    """How much of an exchange is participating — one scanner request.
+
+    Answers what no per-symbol tool can: whether a setup runs with the venue
+    or against it. A bullish chart where 18% of names are above their EMA50 is
+    a different proposition from the same chart at 72%.
+
+    Every percentage is computed only over symbols the scanner had that input
+    for, and the ``coverage`` block reports those denominators — a missing
+    EMA50 is excluded, never counted as "below".
+
+    Args:
+        exchange: KUCOIN, BINANCE, BYBIT, MEXC, NASDAQ, NYSE, EGX, BIST, ...
+        timeframe: One of 5m, 15m, 1h, 4h, 1D, 1W, 1M
+        min_rel_volume: Drop symbols below this relative volume (illiquid
+            listings otherwise dominate a crypto venue's counts)
+
+    Returns:
+        dict with trend_participation (% above EMA50 / SMA200),
+        advance_decline, momentum_distribution and an assessment label. On ANY
+        failure returns a structured error envelope.
+    """
+    try:
+        exchange = validate_exchange(exchange, "kucoin")
+        timeframe = validate_timeframe(timeframe, "1D")
+        return await asyncio.to_thread(
+            analyze_market_breadth, exchange, timeframe, min_rel_volume
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="market_breadth")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Relative Strength Ranking", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def relative_strength(
+    exchange: str = "KUCOIN",
+    window: str = "1M",
+    benchmark: str = "BTCUSDT",
+    limit: int = 15,
+    min_rel_volume: Optional[float] = None,
+) -> dict:
+    """Rank a venue by performance against a benchmark over weeks, not minutes.
+
+    top_gainers ranks by the current bar's change, which answers a different
+    question: what is moving now, not what has been leading. This ranks on
+    period-performance and subtracts the benchmark's own move, so an alt up 4%
+    while BTC is up 9% reads as the laggard it is.
+
+    Performance columns exist only on the daily timeframe, so this always
+    queries 1D and says so in the result.
+
+    Args:
+        exchange: KUCOIN, BINANCE, BYBIT, MEXC, NASDAQ, NYSE, EGX, BIST, ...
+        window: 1W, 1M, 3M or 1Y
+        benchmark: Symbol to measure against (BTCUSDT by default)
+        limit: Leaders and laggards to return each, 1-50
+        min_rel_volume: Drop symbols below this relative volume
+
+    Returns:
+        dict with leaders, laggards, the benchmark's own performance and
+        out/underperforming counts. On ANY failure returns a structured error
+        envelope.
+    """
+    try:
+        exchange = validate_exchange(exchange, "kucoin")
+        return await asyncio.to_thread(
+            rank_relative_strength, exchange, window, benchmark, limit, min_rel_volume
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="relative_strength")
 
 
 # ── Resource ───────────────────────────────────────────────────────────────────
