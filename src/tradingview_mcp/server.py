@@ -115,6 +115,10 @@ from tradingview_mcp.core.services.correlation_service import (
     analyze_correlation,
     analyze_seasonality,
 )
+from tradingview_mcp.core.services.sentiment_index_service import (
+    get_fear_greed,
+    get_narrative_rotation,
+)
 from tradingview_mcp.core.services.crypto_analysis_service import (
     analyze_crypto_fibonacci,
     build_crypto_watchlist,
@@ -1551,6 +1555,59 @@ async def positioning(
         return await asyncio.to_thread(analyze_positioning, symbol, period, history_bars)
     except Exception as e:
         return exception_to_envelope(e, context="positioning")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Fear and Greed Index", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def fear_greed(history_days: int = 30) -> dict:
+    """The crypto Fear & Greed index, with history and direction of travel.
+
+    Needs NO API key — unlike market_sentiment and financial_news, which
+    return "Unavailable" until MARKETAUX_API_TOKEN is configured.
+
+    A level alone says little: 32 after 65 is a different market from 32 after
+    20, so the result carries change_over_window and a direction.
+
+    Args:
+        history_days: Days of history to include, 1-365
+
+    Returns:
+        dict with current reading, range, mean, direction and the series. On
+        ANY failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(get_fear_greed, history_days)
+    except Exception as e:
+        return exception_to_envelope(e, context="fear_greed")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Narrative Rotation", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def narrative_rotation(
+    min_market_cap_usd: Optional[float] = 100000000.0,
+    limit: int = 15,
+    order: str = "gainers",
+) -> dict:
+    """Which crypto sectors are moving — the crypto counterpart of egx_sector_scan.
+
+    The market-cap floor is ON by default and it matters: CoinGecko lists 778
+    categories, and sorting the raw list by 24h change opens with dust like
+    "Decentralized Lottery" up 1331% on a market cap that rounds to $0.0B.
+    Pass null only if you want the dust.
+
+    Args:
+        min_market_cap_usd: Category market-cap floor; null disables it
+        limit: Rows to return, 1-50
+        order: "gainers" or "losers" first
+
+    Returns:
+        dict with ranked categories, their top coins, and advancing/declining
+        counts. On ANY failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            get_narrative_rotation, min_market_cap_usd, limit, order
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="narrative_rotation")
 
 
 @mcp.tool(annotations=ToolAnnotations(title="BTC Correlation and Beta", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
