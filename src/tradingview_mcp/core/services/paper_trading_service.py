@@ -98,14 +98,22 @@ def _wallet_or_error(action: str):
 
 # ── Reset ─────────────────────────────────────────────────────────────────────
 
-def reset_wallet(balance: float = _DEFAULT_BALANCE, currency: str = "USDT",
+def reset_wallet(balance: float, currency: str = "USDT",
                  fee_pct: float = _DEFAULT_FEE_PCT,
                  max_leverage: float = _DEFAULT_MAX_LEVERAGE,
-                 note: Optional[str] = None) -> dict:
+                 note: Optional[str] = None,
+                 confirm_wipe: bool = False) -> dict:
     """Create the wallet, or wipe it and start again.
 
-    Destructive: every position, open and closed, is deleted. That is what a
-    practice wallet is for, but the history is not recoverable.
+    ``balance`` has no default on purpose. How much someone practises with is
+    their decision and it changes what every later number means — a 2% risk
+    rule is a different trade on 500 than on 100,000. A default would get
+    picked silently and then quietly define the whole exercise.
+
+    Resetting over a wallet that holds positions requires ``confirm_wipe``.
+    A practice history is work: the trades someone took, what they cost, what
+    the strategy actually did. Deleting it is unrecoverable, so it cannot
+    happen as a side effect of asking for a fresh wallet.
     """
     try:
         balance = float(balance)
@@ -133,7 +141,24 @@ def reset_wallet(balance: float = _DEFAULT_BALANCE, currency: str = "USDT",
         )
 
     previous = store.get_wallet()
-    discarded = len(store.list_positions()) if previous else 0
+    existing = store.list_positions() if previous else []
+    if existing and not confirm_wipe:
+        closed = [p for p in existing if p["status"] == store.CLOSED]
+        realised = sum(p["realised_pnl"] or 0.0 for p in closed)
+        return make_error(
+            ErrorCode.INVALID_PARAMETER,
+            f"This wallet already holds {len(existing)} position(s) "
+            f"({len(existing) - len(closed)} open, {len(closed)} closed, "
+            f"{realised:+.2f} realised). Resetting deletes all of it "
+            "permanently. Ask the person first, then pass confirm_wipe=true. "
+            "To keep the history, read it with paper_trade_history instead.",
+            open_positions=len(existing) - len(closed),
+            closed_positions=len(closed),
+            realised_pnl=round(realised, 2),
+            needs="confirm_wipe=true",
+        )
+
+    discarded = len(existing)
     wallet = store.reset_wallet(balance, currency.strip().upper(), fee_pct,
                                 max_leverage, note)
     return {

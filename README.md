@@ -82,7 +82,7 @@ tested before it costs anything.
 
 | Tool | What it does |
 |---|---|
-| `paper_wallet_reset` | Create or wipe the wallet — you pick balance, fees, max leverage |
+| `paper_wallet_reset` | Create or wipe the wallet. **You** pick the starting balance — it has no default, because it silently defines every later number. Wiping a wallet that holds positions needs an explicit confirmation |
 | `paper_trade_open` | Long or short, spot or futures, with stop and target |
 | `paper_trade_close` | Close at the live price |
 | `paper_trade_modify` | Move the stop or target (trailing) |

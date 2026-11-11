@@ -2014,26 +2014,35 @@ async def squeeze_scan(
 
 @mcp.tool(annotations=ToolAnnotations(title="Reset Paper Wallet", readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False))
 async def paper_wallet_reset(
-    balance: float = 10000.0,
+    balance: float,
     currency: str = "USDT",
     fee_pct: float = 0.05,
     max_leverage: float = 20.0,
     note: Optional[str] = None,
+    confirm_wipe: bool = False,
 ) -> dict:
     """Create a simulated wallet, or wipe it and start again.
 
     SIMULATED: no real order, no real money, no exchange key. The wallet is a
     local database marked against live prices.
 
-    Destructive - every position, open and closed, is deleted and the history
-    cannot be recovered.
+    ASK THE PERSON for the starting balance before calling this; do not pick
+    one for them. It is deliberately required, because it silently defines
+    every later number — a 2% risk rule is a different trade on 500 than on
+    100,000. If they genuinely do not mind, say which figure you used.
+
+    Resetting over a wallet that already holds positions needs
+    confirm_wipe=true, and that confirmation is the person's to give, not
+    yours: a practice history is the record of what their strategy actually
+    did, and deleting it cannot be undone.
 
     Args:
-        balance: Starting balance, 10 to 100,000,000
+        balance: Starting balance, 10 to 100,000,000 — ask, do not assume
         currency: Quote currency label, e.g. USDT
         fee_pct: Taker fee charged per side, percent (0.05 is Binance-like)
         max_leverage: Ceiling this wallet will allow, 1-125
         note: Free text, e.g. what strategy this wallet is testing
+        confirm_wipe: Required to destroy an existing wallet's positions
 
     Returns:
         dict with the new wallet and how many positions were discarded. On ANY
@@ -2041,7 +2050,8 @@ async def paper_wallet_reset(
     """
     try:
         return await asyncio.to_thread(
-            _paper_reset, balance, currency, fee_pct, max_leverage, note
+            _paper_reset, balance, currency, fee_pct, max_leverage, note,
+            confirm_wipe,
         )
     except Exception as e:
         return exception_to_envelope(e, context="paper_wallet_reset")

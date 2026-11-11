@@ -164,15 +164,47 @@ def test_reset_creates_the_wallet():
     assert "SIMULATED" in out["simulation"]
 
 
-def test_reset_wipes_positions_and_counts_them(monkeypatch):
+def test_reset_refuses_to_wipe_a_history_without_confirmation(monkeypatch):
+    """A practice history is the record of what a strategy did.
+
+    Deleting it is unrecoverable, so it must not happen as a side effect of
+    asking for a fresh wallet.
+    """
     svc.reset_wallet(10000.0)
     _patch_price(monkeypatch, 100.0)
     _patch_bars(monkeypatch, [])
     svc.open_trade("BTCUSDT", "long", 1000.0, "futures", 2.0)
-    out = svc.reset_wallet(10000.0)
+
+    blocked = svc.reset_wallet(5000.0)
+    assert blocked["error"]["code"] == "INVALID_PARAMETER"
+    assert blocked["error"]["needs"] == "confirm_wipe=true"
+    assert blocked["error"]["open_positions"] == 1
+    assert store.list_positions(), "the positions must survive a refused reset"
+
+
+def test_reset_wipes_positions_once_confirmed(monkeypatch):
+    svc.reset_wallet(10000.0)
+    _patch_price(monkeypatch, 100.0)
+    _patch_bars(monkeypatch, [])
+    svc.open_trade("BTCUSDT", "long", 1000.0, "futures", 2.0)
+    out = svc.reset_wallet(10000.0, confirm_wipe=True)
     assert out["positions_discarded"] == 1
     assert out["wallet"]["reset_count"] == 1
     assert store.list_positions() == []
+
+
+def test_first_wallet_needs_no_confirmation():
+    """Nothing to destroy, so nothing to confirm."""
+    out = svc.reset_wallet(2500.0)
+    assert out["wallet"]["starting_balance"] == 2500.0
+
+
+def test_balance_is_required_so_it_cannot_be_assumed():
+    """It silently defines every later number, so the caller must choose."""
+    import inspect
+
+    sig = inspect.signature(svc.reset_wallet)
+    assert sig.parameters["balance"].default is inspect.Parameter.empty
 
 
 @pytest.mark.parametrize("kwargs", [
@@ -180,7 +212,7 @@ def test_reset_wipes_positions_and_counts_them(monkeypatch):
     {"fee_pct": 2}, {"max_leverage": 0}, {"max_leverage": 500},
 ])
 def test_reset_rejects_bad_params(kwargs):
-    assert svc.reset_wallet(**kwargs)["error"]["code"] == "INVALID_PARAMETER"
+    assert svc.reset_wallet(**{'balance': 10000.0, **kwargs})["error"]["code"] == "INVALID_PARAMETER"
 
 
 def test_tools_refuse_to_act_without_a_wallet():
