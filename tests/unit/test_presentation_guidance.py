@@ -202,3 +202,56 @@ def test_the_instructions_carry_the_policy_not_the_hint():
     assert "photograph" in instructions
     assert "re-asks for the same view" in instructions
     assert "closes it" in instructions, "a wallet panel's other obvious control"
+
+
+# ── Every wallet result, not only the ones that read it ───────────────────────
+
+def test_every_paper_result_says_how_to_draw_itself(monkeypatch):
+    """The gap a person found by using it.
+
+    Of eight paper results exactly one carried a hint, and it was a read. So
+    "how is my wallet?" drew a panel and "create me a wallet" came back as a
+    bulleted list — even though somebody who just created a wallet is the
+    person most certainly looking at it. The hint belonged to the moment
+    state CHANGES, which is precisely where it was missing.
+    """
+    from tradingview_mcp.core.services import paper_orders as po
+
+    _patch(monkeypatch)
+    monkeypatch.setattr(po.px, "mark_price", lambda s, m: (100.0, "test"))
+    monkeypatch.setattr(po.px, "bars_since",
+                        lambda s, ms, m, now_ms=None: ([], "1m"))
+
+    results = {"reset": ps.reset_wallet(1000.0, "USDT", 0.0, 20.0)}
+    results["open"] = ps.open_trade("BTCUSDT", "long", 100.0, "futures", 1.0,
+                                    stop_loss=90.0)
+    results["order_place"] = po.place_order("BTCUSDT", "long", 50.0, 80.0)
+    results["order_list"] = po.list_orders()
+    results["status"] = ps.wallet_status()
+    pid = results["status"]["open_positions"][0]["position_id"]
+    results["modify"] = ps.modify_trade(pid, stop_loss=95.0)
+    results["close"] = ps.close_trade(pid)
+    results["history"] = ps.trade_history()
+
+    missing = [k for k, v in results.items() if not v.get("display_hint")]
+    assert missing == [], f"results with no display_hint: {missing}"
+
+
+def test_each_wallet_hint_names_that_surface_and_not_another(monkeypatch):
+    """Identical hints everywhere would be noise with extra steps."""
+    from tradingview_mcp.core.services import display_hints as d
+
+    surfaces = [d.WALLET_CREATED, d.TRADE_OPENED, d.TRADE_CLOSED,
+                d.TRADE_MODIFIED, d.ORDER_PLACED, d.ORDERS_LISTED,
+                d.TRADE_HISTORY]
+    assert len(set(surfaces)) == len(surfaces), "a hint was reused verbatim"
+    assert "max leverage" in d.WALLET_CREATED
+    assert "risk_note" in d.TRADE_OPENED, "a position with no stop must show"
+    assert "fees and funding" in d.TRADE_CLOSED
+    assert "fill_realism" in d.ORDER_PLACED
+
+
+def test_the_instructions_no_longer_name_only_the_read_tools():
+    instructions = mcp.instructions or ""
+    assert "every paper wallet result" in instructions
+    assert "most certainly looking" in instructions

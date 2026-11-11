@@ -48,3 +48,47 @@ LEAD_TRADERS = hint(
     "put advertised next to measured, and surface unmeasured - a blank "
     "leverage is missing, not low."
 )
+
+
+# ── The paper wallet, at the moments a person is plainly looking ─────────────
+#
+# These were missing, and the shape of the gap is instructive: the hint sat on
+# the tools that READ state and on none of the tools that CHANGE it. So asking
+# "how is my wallet?" drew a panel, while creating the wallet, opening a trade
+# or closing one came back as prose — even though someone who just acted is
+# the person most certainly looking at the result.
+
+WALLET_CREATED = hint(
+    "show the balance with the settings that came with it - fee per side and "
+    "max leverage decide what every later number means."
+)
+
+TRADE_OPENED = hint(
+    "show entry, stop, target and what the stop costs; surface risk_note "
+    "when there is no stop, because that position has no defined loss."
+)
+
+TRADE_CLOSED = hint(
+    "show the realised result next to what fees and funding took out of it - "
+    "a strategy that only works before costs should look like one."
+)
+
+TRADE_MODIFIED = hint(
+    "show the levels that changed against the ones they replaced, not just "
+    "the new numbers."
+)
+
+ORDER_PLACED = hint(
+    "show it resting with the distance left to run, and fill_realism - a "
+    "touched level filling is the one place this simulator flatters you."
+)
+
+ORDERS_LISTED = hint(
+    "show what is resting and the margin it holds - that is cash gone from "
+    "the balance and not yet in any position."
+)
+
+TRADE_HISTORY = hint(
+    "draw the equity curve if it was asked for, and show what fees and "
+    "funding consumed, not only the win rate."
+)

@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from tradingview_mcp.core.errors import ErrorCode, make_error
 from tradingview_mcp.core.services import paper_pricing as px
+from tradingview_mcp.core.services import display_hints
 from tradingview_mcp.core.services import paper_store as store
 
 _DEFAULT_BALANCE = 10_000.0
@@ -181,6 +182,7 @@ def reset_wallet(balance: float, currency: str = "USDT",
             "note": wallet["note"],
         },
         "positions_discarded": discarded,
+        "display_hint": display_hints.WALLET_CREATED,
         "simulation": _SIMULATION_NOTICE,
         "database": str(store.db_path()),
     }
@@ -508,6 +510,7 @@ def open_trade(symbol: str, side: str, notional: float,
         "cash_remaining": round(store.get_wallet()["cash"], 2),
         "settled_before_opening": settled or None,
         "unsettled_positions": settle_failures or None,
+        "display_hint": display_hints.TRADE_OPENED,
         "simulation": _SIMULATION_NOTICE,
         "slippage": _SLIPPAGE_NOTICE,
     }
@@ -603,6 +606,7 @@ def close_trade(position_id: int, note: Optional[str] = None) -> dict:
         "also_settled": [e for e in settled if e.get("position_id") != position["id"]]
         or None,
         "unsettled_positions": settle_failures or None,
+        "display_hint": display_hints.TRADE_CLOSED,
         "simulation": _SIMULATION_NOTICE,
     }
 
@@ -676,6 +680,7 @@ def modify_trade(position_id: int, stop_loss: Optional[float] = None,
             "stop_loss": updated["stop_loss"],
             "take_profit": updated["take_profit"],
         },
+        "display_hint": display_hints.TRADE_MODIFIED,
         "simulation": _SIMULATION_NOTICE,
     }
 
@@ -950,12 +955,12 @@ def trade_history(limit: int = 50, include_equity_curve: bool = False) -> dict:
             "so the gap between the two lines is what trading cost"
             if include_equity_curve else None
         ),
-        "display_hint": _DISPLAY_HINT,
         "cost_note": (
             "Fees and funding are already inside realised_pnl; "
             "total_fees_paid and total_funding_paid show how much of the "
             "result they consumed."
         ),
+        "display_hint": display_hints.TRADE_HISTORY,
         "simulation": _SIMULATION_NOTICE,
         "slippage": _SLIPPAGE_NOTICE,
     }

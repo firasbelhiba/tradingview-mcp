@@ -32,6 +32,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from tradingview_mcp.core.errors import ErrorCode, make_error
+from tradingview_mcp.core.services import display_hints
 from tradingview_mcp.core.services import paper_pricing as px
 from tradingview_mcp.core.services import paper_store as store
 
@@ -279,6 +280,7 @@ def place_order(symbol: str, side: str, notional: float, limit_price: float,
             "settled from that bar forward."
         ),
         "fill_realism": _FILL_NOTICE,
+        "display_hint": display_hints.ORDER_PLACED,
         "simulation": _SIMULATION_NOTICE,
     }
 
@@ -492,5 +494,8 @@ def list_orders(status: Optional[str] = None, limit: int = 50) -> dict:
         ),
         "settled_this_check": settled[0] if isinstance(settled, tuple) else None,
         "fill_realism": _FILL_NOTICE if pending else None,
+        "display_hint": (
+            display_hints.ORDERS_LISTED if rows else None
+        ),
         "simulation": _SIMULATION_NOTICE,
     }

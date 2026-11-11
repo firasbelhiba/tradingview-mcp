@@ -64,7 +64,7 @@ Backtest an RSI strategy on BTC on the daily timeframe
 
 > This is a fork of [atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)
 > (MIT, © 2025 Ahmet Taner Atila). Everything below is added on top of the
-> upstream tools documented further down. **77 tools, 1,045 tests.**
+> upstream tools documented further down. **77 tools, 1,048 tests.**
 
 **New here? Start by asking your AI these three things:**
 
