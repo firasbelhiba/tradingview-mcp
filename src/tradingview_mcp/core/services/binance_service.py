@@ -50,6 +50,12 @@ _TIMEOUT = 15
 # Binance interval, so candles need no resampling — unlike the Yahoo path,
 # which serves 1h and 1d only and had to build 4h bars itself.
 _KLINE_INTERVAL = {
+    # 1m and 3m matter even though no tool exposes them as a timeframe: the
+    # paper-trading settler picks the finest interval that covers a position's
+    # age, so a position opened seconds ago asks for 1m bars. Leaving them out
+    # made every freshly opened position unsettleable until it aged past 25
+    # hours, and broke the spot price fallback, which reads 1m klines.
+    "1m": "1m", "3m": "3m",
     "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h", "2h": "2h",
     "4h": "4h", "6h": "6h", "8h": "8h", "12h": "12h",
     "1d": "1d", "1D": "1d", "3d": "3d", "1w": "1w", "1W": "1w", "1M": "1M",

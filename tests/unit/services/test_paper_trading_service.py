@@ -71,6 +71,24 @@ def test_interval_picked_covers_the_span(span_ms, expected):
     assert px.pick_interval(span_ms)[0] == expected
 
 
+def test_every_interval_the_settler_picks_is_a_real_kline_interval():
+    """The two maps have to agree, and they silently did not.
+
+    pick_interval chose "1m" for a position opened seconds ago, but "1m" was
+    missing from binance_service's kline map, so the settler's very first
+    call failed for every new position until it aged past 25 hours — and the
+    spot price fallback, which also reads 1m klines, was broken with it. The
+    unit tests could not see it because they mock bars_since; only a live run
+    did. This pins the relationship instead of the symptom.
+    """
+    from tradingview_mcp.core.services import binance_service as bn
+
+    for name, _step in px._INTERVAL_SPAN_MS:
+        assert bn.kline_interval_for(name) is not None, (
+            f"pick_interval can return {name!r} but get_klines rejects it"
+        )
+
+
 def test_symbol_normalisation():
     assert px.normalise_symbol("kucoin:btc-usdt") == "BTCUSDT"
     assert px.normalise_symbol(" eth/usdt ") == "ETHUSDT"
