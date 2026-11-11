@@ -60,11 +60,11 @@ Backtest an RSI strategy on BTC on the daily timeframe
 > [!NOTE]
 > **Does it need — or risk — your TradingView account? No.** This server does **not** log into, scrape, or automate a TradingView session, and it requires no TradingView account or API key. Market data is fetched server-side from public endpoints, so there is no account of yours in the loop and no browser/UI automation. *(This is different from MCP servers that drive the TradingView Desktop app via Chrome DevTools.)* You are responsible for ensuring your own use complies with the terms of any data source you point it at.
 
-## 🧪 This fork adds 32 tools — including a paper-trading wallet
+## 🧪 This fork adds 35 tools — including a paper-trading wallet
 
 > This is a fork of [atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)
 > (MIT, © 2025 Ahmet Taner Atila). Everything below is added on top of the
-> upstream tools documented further down. **71 tools, 921 tests.**
+> upstream tools documented further down. **74 tools, 961 tests.**
 
 **New here? Start by asking your AI these three things:**
 
@@ -87,7 +87,7 @@ tested before it costs anything.
 | `paper_trade_close` | Close at the live price |
 | `paper_trade_modify` | Move the stop or target (trailing) |
 | `paper_wallet_status` | Cash, positions marked live, equity, unrealised PnL |
-| `paper_trade_history` | Win rate, profit factor, expectancy, drawdown, costs |
+| `paper_trade_history` | Win rate, profit factor, expectancy, drawdown, costs, and an equity curve with the drawdown at every point |
 | `paper_wallet_widget` | The wallet as a `ui://` panel (MCP Apps hosts only) |
 
 It is deliberately hard where the market is hard:
@@ -137,6 +137,19 @@ hours, not 8, so a uniform annualisation understates most of the market.
 | `donchian_breakout_scan` | Channel breakouts measured on the prior window |
 | `correlation` | Correlation, beta and r² vs BTC — is it its own trade? |
 | `seasonality` | Return by weekday and hour, with a t-stat so noise shows as noise |
+
+### 🧭 One call instead of six
+
+| Tool | What it does |
+|---|---|
+| `market_brief` | Breadth, the bitcoin pulse, perp positioning, sentiment, your alerts and your wallet — gathered concurrently, returned as one object |
+| `get_started` | What to do next, read off the real state of *this* install — not a feature tour |
+| `alert_schedule` | The exact cron and prompt to hand a scheduler so standing alerts actually fire |
+
+`market_brief` keeps answering when a feed does not: a section that fails
+lands in `unavailable` with its reason instead of taking the brief down, and
+`attention` collects what a tidy summary would bury — a fired alert, a
+position nobody could price, a feed that went quiet.
 
 ### 🔔 Alerts and sentiment
 

@@ -135,6 +135,10 @@ from tradingview_mcp.core.services.paper_widget import (
     wallet_widget_html,
 )
 from tradingview_mcp.core.services.brief_service import market_brief as _market_brief
+from tradingview_mcp.core.services.onboarding_service import (
+    alert_schedule_recipe as _alert_schedule,
+    get_started as _get_started,
+)
 from tradingview_mcp.core.services.paper_trading_service import (
     close_trade as _paper_close,
     modify_trade as _paper_modify,
@@ -2042,6 +2046,54 @@ async def market_brief(
         )
     except Exception as e:
         return exception_to_envelope(e, context="market_brief")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Get Started", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def get_started() -> dict:
+    """What to do next, based on what this installation actually has.
+
+    Call this when someone is new to this server, asks what it can do, or
+    seems unsure where to begin. It checks real state — is there a practice
+    wallet, are there alerts, is the Marketaux key set, is the data layer
+    answering — and returns an ordered list of next steps.
+
+    It is not a feature tour. A list of 74 tools is what the README is for,
+    and whoever needs this is the person who did not read one.
+
+    Returns:
+        dict with state, next_steps and a few things worth asking. On ANY
+        failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(_get_started)
+    except Exception as e:
+        return exception_to_envelope(e, context="get_started")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Alert Schedule Recipe", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def alert_schedule(every_minutes: int = 15) -> dict:
+    """How to make standing alerts actually fire, via a scheduled task.
+
+    Alerts are stored and evaluated on demand, so nothing fires them on its
+    own and a condition met overnight is noticed in the morning. MCP gives a
+    server no way to wake anyone, so this returns the exact prompt and
+    cadence to hand a scheduler — the honest answer rather than pretending
+    the server can push.
+
+    Read the caveats: a check reads the price AT CHECK TIME, so a condition
+    met and unmet between two checks is missed entirely.
+
+    Args:
+        every_minutes: How often to check, 5-1440
+
+    Returns:
+        dict with the schedule, the task prompt to use, how to set it up and
+        what it cannot do. On ANY failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(_alert_schedule, every_minutes)
+    except Exception as e:
+        return exception_to_envelope(e, context="alert_schedule")
 
 
 # -- Paper trading -------------------------------------------------------------
