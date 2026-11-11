@@ -232,3 +232,16 @@ def test_the_fetched_list_is_unioned_with_the_literal_one(monkeypatch):
     symbols = svc._stablecoin_symbols()
     assert "newstable" in symbols
     assert "usdt" in symbols
+
+
+def test_each_coin_carries_its_logo(monkeypatch):
+    """A bubble chart wants the mark, not the ticker."""
+    coin = _coin(1, "BTC", 1e12)
+    coin["image"] = "https://coin-images.coingecko.com/coins/images/1/large/bitcoin.png"
+    _patch(monkeypatch, [coin])
+    assert svc.crypto_bubbles(limit=1)["coins"][0]["logo"].endswith("bitcoin.png")
+
+
+def test_a_missing_logo_is_none_not_a_broken_string(monkeypatch):
+    _patch(monkeypatch, [_coin(1, "BTC", 1e12)])
+    assert svc.crypto_bubbles(limit=1)["coins"][0]["logo"] is None

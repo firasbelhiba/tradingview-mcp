@@ -141,6 +141,11 @@ def _row(raw: dict) -> dict:
         "rank": raw.get("market_cap_rank"),
         "symbol": (raw.get("symbol") or "").upper(),
         "name": raw.get("name"),
+        # CoinGecko's own logo. Served from coin-images.coingecko.com, which
+        # some sandboxed renderers refuse on content-security grounds — a
+        # client that cannot reach it should fall back to the ticker rather
+        # than show a hole.
+        "logo": raw.get("image"),
         "price": raw.get("current_price"),
         "market_cap": raw.get("market_cap"),
         "volume_24h": raw.get("total_volume"),
