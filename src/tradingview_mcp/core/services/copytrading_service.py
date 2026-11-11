@@ -36,6 +36,7 @@ from threading import Lock
 from typing import Any, Dict, List, Optional, Tuple
 
 from tradingview_mcp.core.errors import ErrorCode, make_error
+from tradingview_mcp.core.services import display_hints
 
 _BASE = "https://www.okx.com/api/v5/copytrading/"
 _UA = "Mozilla/5.0 (compatible; tradingview-mcp/0.9.0)"
@@ -392,14 +393,36 @@ def list_lead_traders(
         return -(adv.get("lead_days") or 0)  # track_record
 
     enriched.sort(key=key)
+    returned = enriched[:limit]
+    # The leaderboard publishes return and hides leverage; this tool
+    # exists to measure what it hides. When that measurement comes
+    # back empty the row still carries the advertised figures, and a
+    # null leverage beside measured ones reads as a low one. Name them.
+    unmeasured = [r["nickname"] for r in returned
+                  if (r.get("measured") or {}).get("avg_leverage")
+                  is None]
     return {
         "source": "OKX copy trading, public endpoints (no key)",
         "instrument_type": instrument_type,
         "sort": sort,
         "candidates_seen": len(candidates),
-        "returned": len(enriched[:limit]),
+        "returned": len(returned),
         "excluded_by_leverage_filter": filtered_out or None,
-        "traders": enriched[:limit],
+        "traders": returned,
+        "unmeasured": (
+            {"traders": unmeasured,
+             "count": len(unmeasured),
+             "of_returned": len(returned),
+             "meaning": (
+                 "Their closed-trade history did not come back, so "
+                 "avg_leverage, max_leverage, worst_trade_pct and "
+                 "measured_win_rate_pct are null for them. A blank leverage is "
+                 "MISSING, not low — do not read these rows as the "
+                 "conservative ones. Ask again, or call lead_trader_profile "
+                 "with a larger history_limit."
+             )}
+            if unmeasured else None
+        ),
         "thresholds": {
             "high_leverage": _HIGH_LEVERAGE,
             "extreme_leverage": _EXTREME_LEVERAGE,
@@ -417,6 +440,7 @@ def list_lead_traders(
             "This reports published statistics. It does not place, follow or "
             "size any trade, and it is not a recommendation."
         ),
+        "display_hint": display_hints.LEAD_TRADERS,
         "disclaimer": "For educational/informational purposes only. Not financial advice.",
     }
 
@@ -502,6 +526,11 @@ def get_lead_trader(unique_code: str, instrument_type: str = "SWAP",
     except Exception:  # noqa: BLE001
         preferences = []
 
+    if (profile.get("measured") or {}).get("closed_trades_sampled") == 0:
+        profile.setdefault("incomplete", []).append(
+            "no closed trades came back, so every measured figure is "
+            "null - missing, not low"
+        )
     open_levs = [p["leverage"] for p in open_positions if p.get("leverage")]
     profile["open_positions"] = open_positions or None
     profile["open_position_count"] = len(open_positions)

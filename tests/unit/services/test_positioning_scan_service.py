@@ -234,7 +234,10 @@ def test_elevated_rows_are_ranked_first(monkeypatch):
     })
     out = svc.scan_squeeze_risk(min_quote_volume_usd=None)
     assert out["ranked"][0]["symbol"] == "ELEV"
-    assert [g["symbol"] for g in out["elevated"]] == ["ELEV"]
+    # Symbols, not rows: `ranked` already holds the detail for anything it
+    # shows, and repeating those rows here cost 26% of a live payload.
+    assert out["elevated"] == ["ELEV"]
+    assert out["elevated_beyond_limit"] is None
 
 
 @pytest.mark.parametrize("kwargs", [
@@ -247,3 +250,57 @@ def test_squeeze_scan_rejects_bad_params(kwargs):
 def test_squeeze_scan_rejects_bad_period():
     out = svc.scan_squeeze_risk(period="7s")
     assert out["error"]["code"] == "INVALID_TIMEFRAME"
+
+
+# ── The payload a person actually receives ────────────────────────────────────
+
+def test_elevated_names_survive_the_limit_without_repeating_rows(monkeypatch):
+    """`elevated` exists so a grade cannot hide past `limit`.
+
+    It used to keep that promise by sending whole rows, which at limit=20
+    meant 5,753 of 21,710 live characters were duplicates of rows already in
+    `ranked`. Symbols keep the promise; `elevated_beyond_limit` says when a
+    row was not included, so "not shown" never looks like "not elevated".
+    """
+    symbols = ["E1", "E2", "E3"]
+    _patch_board(
+        monkeypatch,
+        [_premium(s, 0.002) for s in symbols],
+        [_ticker(s, -5.0) for s in symbols],
+    )
+    _patch_detail(monkeypatch, {
+        s: {"crowd_long": 0.85, "crowd_ratio": 5.7, "top_long": 0.70,
+            "oi_change_pct": 20.0} for s in symbols
+    })
+    out = svc.scan_squeeze_risk(limit=1, min_quote_volume_usd=None)
+
+    assert len(out["ranked"]) == 1, "limit must still bound the rows"
+    assert sorted(out["elevated"]) == symbols, "no elevated name may vanish"
+    assert all(isinstance(s, str) for s in out["elevated"])
+    beyond = out["elevated_beyond_limit"]
+    assert sorted(beyond["symbols"]) == sorted(symbols[1:])
+    assert "limit=1" in beyond["note"], "it must say how to see the rest"
+
+
+def test_nothing_is_beyond_the_limit_when_everything_fits(monkeypatch):
+    _patch_board(monkeypatch, [_premium("E1", 0.002)], [_ticker("E1", -5.0)])
+    _patch_detail(monkeypatch, {
+        "E1": {"crowd_long": 0.85, "crowd_ratio": 5.7, "top_long": 0.70,
+               "oi_change_pct": 20.0},
+    })
+    assert svc.scan_squeeze_risk(min_quote_volume_usd=None)[
+        "elevated_beyond_limit"] is None
+
+
+def test_the_scans_carry_their_rendering_pointer(monkeypatch):
+    """Both are named in the server's PRESENTATION block, so both must
+    carry the pointer that tells the assistant what not to bury."""
+    _patch_board(monkeypatch, [_premium("X", 0.002)], [_ticker("X", -5.0)])
+    _patch_detail(monkeypatch, {
+        "X": {"crowd_long": 0.85, "crowd_ratio": 5.7, "top_long": 0.70,
+              "oi_change_pct": 20.0},
+    })
+    squeeze = svc.scan_squeeze_risk(min_quote_volume_usd=None)
+    assert "unavailable" in squeeze["display_hint"]
+    funding = svc.screen_funding(min_quote_volume_usd=None)
+    assert "interval_note" in funding["display_hint"]

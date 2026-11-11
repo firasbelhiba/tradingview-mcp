@@ -22,6 +22,8 @@ from statistics import median
 from typing import Any, Dict, List, Optional
 
 from tradingview_mcp.core.errors import ErrorCode, make_error
+from tradingview_mcp.core.services import display_hints
+from tradingview_mcp.core.services import display_hints
 from tradingview_mcp.core.services.coinlist import load_symbols
 from tradingview_mcp.core.services.indicators import RELATIVE_VOLUME
 from tradingview_mcp.core.services.screener_provider import resilient_scan_columns
@@ -205,6 +207,7 @@ def analyze_market_breadth(
             ),
         },
         "filters": {"min_rel_volume": min_rel_volume},
+        "display_hint": display_hints.BREADTH,
         "disclaimer": "For educational/informational purposes only. Not financial advice.",
     }
 
@@ -333,6 +336,7 @@ def rank_relative_strength(
         "leaders": entries[:limit],
         "laggards": entries[-limit:][::-1],
         "filters": {"min_rel_volume": min_rel_volume},
+        "display_hint": display_hints.RELATIVE_STRENGTH,
         "disclaimer": "For educational/informational purposes only. Not financial advice.",
     }
     if warning:

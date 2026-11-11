@@ -14,7 +14,9 @@ import argparse
 import asyncio
 import json
 import os
-from typing import Optional
+from typing import Annotated, Optional
+
+from pydantic import Field
 
 # Eagerly import pandas on the main thread. Several tools route through
 # tradingview_screener's bare Query(), whose first call imports pandas lazily —
@@ -1270,11 +1272,29 @@ async def stock_prices(tickers: str) -> dict:
 
 @mcp.tool(annotations=ToolAnnotations(title="Crypto Trade Plan", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
 async def crypto_trade_plan(
-    symbol: str,
-    exchange: str = "KUCOIN",
-    timeframe: str = "4h",
-    account_size: Optional[float] = None,
-    risk_pct: float = 1.0,
+    symbol: Annotated[
+        str,
+        Field(description="Pair symbol, e.g. BTCUSDT"),
+    ],
+    exchange: Annotated[
+        str,
+        Field(description="Venue: KUCOIN, BINANCE, BYBIT, MEXC, BITGET, OKX, "
+            "COINBASE, GATEIO"),
+    ] = "KUCOIN",
+    timeframe: Annotated[
+        str,
+        Field(description="One of 5m, 15m, 1h, 4h, 1D, 1W, 1M (4h suits swing trades)"),
+    ] = "4h",
+    account_size: Annotated[
+        Optional[float],
+        Field(description="Account value in quote currency; omit to skip position "
+            "sizing"),
+    ] = None,
+    risk_pct: Annotated[
+        float,
+        Field(description="Percent of the account risked on this trade, e.g. 1.0 for "
+            "1%"),
+    ] = 1.0,
 ) -> dict:
     """Entry, stop, targets and R:R for a crypto pair, with optional sizing.
 
@@ -2108,12 +2128,33 @@ async def alert_schedule(every_minutes: int = 15) -> dict:
 
 @mcp.tool(annotations=ToolAnnotations(title="Reset Paper Wallet", readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False))
 async def paper_wallet_reset(
-    balance: float,
-    currency: str = "USDT",
-    fee_pct: float = 0.05,
-    max_leverage: float = 20.0,
-    note: Optional[str] = None,
-    confirm_wipe: bool = False,
+    balance: Annotated[
+        float,
+        Field(description="Starting balance, 10 to 100,000,000. Ask the person for "
+            "it; it silently defines what every later percentage means"),
+    ],
+    currency: Annotated[
+        str,
+        Field(description="Quote currency label, e.g. USDT"),
+    ] = "USDT",
+    fee_pct: Annotated[
+        float,
+        Field(description="Taker fee charged per side, as a PERCENT: 0.05 means "
+            "0.05%, Binance-like, not 5%"),
+    ] = 0.05,
+    max_leverage: Annotated[
+        float,
+        Field(description="Highest leverage this wallet will allow, 1 to 125"),
+    ] = 20.0,
+    note: Annotated[
+        Optional[str],
+        Field(description="Free text, e.g. which strategy this wallet is testing"),
+    ] = None,
+    confirm_wipe: Annotated[
+        bool,
+        Field(description="Must be true to destroy an existing wallet and its "
+            "positions"),
+    ] = False,
 ) -> dict:
     """Create a simulated wallet, or wipe it and start again.
 
@@ -2153,14 +2194,42 @@ async def paper_wallet_reset(
 
 @mcp.tool(annotations=ToolAnnotations(title="Open Paper Trade", readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True))
 async def paper_trade_open(
-    symbol: str,
-    side: str,
-    notional: float,
-    market: str = "futures",
-    leverage: float = 1.0,
-    stop_loss: Optional[float] = None,
-    take_profit: Optional[float] = None,
-    note: Optional[str] = None,
+    symbol: Annotated[
+        str,
+        Field(description="Pair, e.g. BTCUSDT"),
+    ],
+    side: Annotated[
+        str,
+        Field(description="\"long\" or \"short\" (short requires market=\"futures\")"),
+    ],
+    notional: Annotated[
+        float,
+        Field(description="Position value in the wallet's currency, e.g. 500 for a "
+            "$500 position. Margin posted is notional / leverage"),
+    ],
+    market: Annotated[
+        str,
+        Field(description="\"futures\" (shorts, leverage, funding, liquidation) or "
+            "\"spot\" (long-only, unlevered)"),
+    ] = "futures",
+    leverage: Annotated[
+        float,
+        Field(description="1 to the wallet's maximum; futures only"),
+    ] = 1.0,
+    stop_loss: Annotated[
+        Optional[float],
+        Field(description="Price to exit at a loss - below entry for a long, above "
+            "for a short"),
+    ] = None,
+    take_profit: Annotated[
+        Optional[float],
+        Field(description="Price to exit at a gain - above entry for a long, below "
+            "for a short"),
+    ] = None,
+    note: Annotated[
+        Optional[str],
+        Field(description="Why this trade, so the history is reviewable later"),
+    ] = None,
 ) -> dict:
     """Open a simulated position at the current real market price.
 
@@ -2198,7 +2267,16 @@ async def paper_trade_open(
 
 
 @mcp.tool(annotations=ToolAnnotations(title="Close Paper Trade", readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True))
-async def paper_trade_close(position_id: int, note: Optional[str] = None) -> dict:
+async def paper_trade_close(
+    position_id: Annotated[
+        int,
+        Field(description="From paper_trade_open or paper_wallet_status"),
+    ],
+    note: Annotated[
+        Optional[str],
+        Field(description="Why it was closed"),
+    ] = None,
+) -> dict:
     """Close a simulated position at the current real market price.
 
     Settles first: if the stop, target or liquidation price was already
@@ -2220,9 +2298,18 @@ async def paper_trade_close(position_id: int, note: Optional[str] = None) -> dic
 
 @mcp.tool(annotations=ToolAnnotations(title="Modify Paper Trade", readOnlyHint=False, destructiveHint=False, idempotentHint=True, openWorldHint=True))
 async def paper_trade_modify(
-    position_id: int,
-    stop_loss: Optional[float] = None,
-    take_profit: Optional[float] = None,
+    position_id: Annotated[
+        int,
+        Field(description="From paper_trade_open or paper_wallet_status"),
+    ],
+    stop_loss: Annotated[
+        Optional[float],
+        Field(description="New stop price; omit to leave it unchanged"),
+    ] = None,
+    take_profit: Annotated[
+        Optional[float],
+        Field(description="New target price; omit to leave it unchanged"),
+    ] = None,
 ) -> dict:
     """Set or move the stop and target on an open simulated position.
 
@@ -2247,7 +2334,12 @@ async def paper_trade_modify(
 
 
 @mcp.tool(annotations=ToolAnnotations(title="Paper Wallet Status", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
-async def paper_wallet_status(include_closed: int = 0) -> dict:
+async def paper_wallet_status(
+    include_closed: Annotated[
+        int,
+        Field(description="Also return this many recent closed positions, 0 for none"),
+    ] = 0,
+) -> dict:
     """The simulated wallet: cash, open positions marked live, and equity.
 
     Every call settles first, so stops and targets reached since the last look
@@ -2270,7 +2362,17 @@ async def paper_wallet_status(include_closed: int = 0) -> dict:
 
 
 @mcp.tool(annotations=ToolAnnotations(title="Paper Trade History", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
-async def paper_trade_history(limit: int = 50, include_equity_curve: bool = False) -> dict:
+async def paper_trade_history(
+    limit: Annotated[
+        int,
+        Field(description="Closed trades to return, 1 to 500"),
+    ] = 50,
+    include_equity_curve: Annotated[
+        bool,
+        Field(description="Add the equity after every trade, with the drawdown at "
+            "each point"),
+    ] = False,
+) -> dict:
     """Closed simulated trades and the performance they add up to.
 
     Win rate, profit factor, expectancy, realised drawdown sequenced by close
@@ -2352,14 +2454,43 @@ async def paper_wallet_widget(include_closed: int = 0) -> list:
 
 @mcp.tool(annotations=ToolAnnotations(title="Create Alert", readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True))
 async def alert_create(
-    symbol: str,
-    metric: str,
-    operator: str,
-    threshold: float,
-    exchange: str = "KUCOIN",
-    timeframe: str = "4h",
-    note: Optional[str] = None,
-    repeat_after_fire: bool = False,
+    symbol: Annotated[
+        str,
+        Field(description="Pair or ticker, e.g. BTCUSDT. Ignored for market-wide "
+            "metrics"),
+    ],
+    metric: Annotated[
+        str,
+        Field(description="What to watch, e.g. price, rsi, funding_annualised_pct, "
+            "crowd_long_pct, breadth_above_ema50_pct. Call "
+            "alert_metrics for the full list with units"),
+    ],
+    operator: Annotated[
+        str,
+        Field(description="\"above\" or \"below\" - tested at check time, so it is a "
+            "level, not a crossing"),
+    ],
+    threshold: Annotated[
+        float,
+        Field(description="The number to compare the metric against, in the metric's "
+            "own units"),
+    ],
+    exchange: Annotated[
+        str,
+        Field(description="Venue, e.g. KUCOIN, BINANCE, NASDAQ"),
+    ] = "KUCOIN",
+    timeframe: Annotated[
+        str,
+        Field(description="Timeframe the metric is read on, e.g. 4h, 1D"),
+    ] = "4h",
+    note: Annotated[
+        Optional[str],
+        Field(description="Free text stored with the alert and echoed when it fires"),
+    ] = None,
+    repeat_after_fire: Annotated[
+        bool,
+        Field(description="Keep checking after it fires instead of disarming itself"),
+    ] = False,
 ) -> dict:
     """Store a standing condition to be evaluated later by alert_check.
 
@@ -2394,7 +2525,12 @@ async def alert_create(
 
 
 @mcp.tool(annotations=ToolAnnotations(title="Check Alerts", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
-async def alert_check(include_triggered: bool = False) -> dict:
+async def alert_check(
+    include_triggered: Annotated[
+        bool,
+        Field(description="Also re-evaluate alerts that have already fired"),
+    ] = False,
+) -> dict:
     """Evaluate armed alerts and report which conditions are now met.
 
     Scanner-backed metrics are batched: fifty price alerts on one exchange
@@ -2418,7 +2554,12 @@ async def alert_check(include_triggered: bool = False) -> dict:
 
 
 @mcp.tool(annotations=ToolAnnotations(title="List Alerts", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
-async def alert_list(state: Optional[str] = None) -> dict:
+async def alert_list(
+    state: Annotated[
+        Optional[str],
+        Field(description="\"armed\", \"triggered\", or omit for all of them"),
+    ] = None,
+) -> dict:
     """List stored alerts and their state.
 
     Args:
@@ -2435,7 +2576,16 @@ async def alert_list(state: Optional[str] = None) -> dict:
 
 
 @mcp.tool(annotations=ToolAnnotations(title="Manage Alert", readOnlyHint=False, destructiveHint=True, idempotentHint=True, openWorldHint=False))
-async def alert_manage(alert_id: int, action: str = "delete") -> dict:
+async def alert_manage(
+    alert_id: Annotated[
+        int,
+        Field(description="The id returned by alert_create or alert_list"),
+    ],
+    action: Annotated[
+        str,
+        Field(description="\"delete\" or \"rearm\""),
+    ] = "delete",
+) -> dict:
     """Delete an alert, or re-arm one that already fired.
 
     Deleting is irreversible — the row is removed, not archived.

@@ -305,3 +305,33 @@ def test_relative_strength_reports_when_no_symbol_has_performance(monkeypatch):
     _patch_scan(monkeypatch, {"KUCOIN:A": _rs_row(perf_1m=None)})
     out = svc.rank_relative_strength("KUCOIN", "1M", "BTCUSDT")
     assert out["error"]["code"] == "NO_DATA"
+
+
+# ── The rendering pointer ─────────────────────────────────────────────────────
+
+def test_breadth_and_strength_carry_their_rendering_pointers(monkeypatch):
+    """Both are named in the server's PRESENTATION block.
+
+    Breadth is a set of percentages over different denominators, so the hint
+    has to point at coverage.note; a panel showing "18% above EMA50" without
+    saying 18% of what is a worse artefact than the table it replaced.
+    """
+    rows = {f"KUCOIN:{s}": _row(change=float(i))
+            for i, s in enumerate(("A", "B", "C"))}
+    _patch_universe(monkeypatch, ["A", "B", "C"])
+    _patch_scan(monkeypatch, rows)
+
+    breadth = svc.analyze_market_breadth("KUCOIN", "1D")
+    assert "coverage.note" in breadth["display_hint"]
+    assert "denominator" in breadth["display_hint"]
+
+    rs_rows = {
+        "KUCOIN:BTCUSDT": _rs_row(perf_1m=5.0),
+        "KUCOIN:STRONG": _rs_row(perf_1m=20.0),
+        "KUCOIN:WEAK": _rs_row(perf_1m=1.0),
+    }
+    _patch_universe(monkeypatch, ["BTCUSDT", "STRONG", "WEAK"])
+    _patch_scan(monkeypatch, rs_rows)
+    strength = svc.rank_relative_strength("KUCOIN", "1M", "BTCUSDT", limit=2)
+    assert "leaders and laggards" in strength["display_hint"]
+    assert "how many symbols were measured" in strength["display_hint"]

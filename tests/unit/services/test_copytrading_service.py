@@ -369,3 +369,83 @@ def test_profile_records_unavailable_positions(monkeypatch):
     out = svc.get_lead_trader("C1")
     assert out["open_positions"] is None
     assert any("open positions unavailable" in m for m in out["incomplete"])
+
+
+# ── A measurement that failed must not look like a good reading ───────────────
+
+def test_a_trader_whose_history_is_missing_is_named(monkeypatch):
+    """The live run that found this returned 2 of 10 traders unmeasured.
+
+    Their avg_leverage, worst_trade_pct and measured_win_rate_pct were all
+    null, nothing at the top level said so, and a blank leverage sitting
+    beside measured ones reads as a LOW one - the opposite of what this tool
+    exists to show. It is the same distinction the alert layer keeps between
+    "not evaluated" and "condition not met".
+    """
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([
+            _trader(nick="Measured", code="M1", days=500),
+            _trader(nick="Blank", code="B1", days=400),
+        ]),
+        "public-subpositions-history": _plain([]),      # no history for anyone
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+    })
+    out = svc.list_lead_traders(limit=2)
+    unmeasured = out["unmeasured"]
+    assert sorted(unmeasured["traders"]) == ["Blank", "Measured"]
+    assert unmeasured["count"] == 2
+    assert unmeasured["of_returned"] == 2
+    assert "MISSING, not low" in unmeasured["meaning"]
+
+
+def test_the_flag_is_absent_when_everyone_was_measured(monkeypatch):
+    """A field that is always present stops being a warning."""
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader(nick="Measured", code="M1")]),
+        "public-subpositions-history": _plain([_closed(lever="2E+1")]),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+    })
+    out = svc.list_lead_traders(limit=1)
+    assert out["unmeasured"] is None
+    assert out["traders"][0]["measured"]["avg_leverage"] == 20.0
+
+
+def test_only_the_returned_traders_are_counted(monkeypatch):
+    """`unmeasured` describes the rows in hand, not the whole candidate set."""
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([
+            _trader(nick="A", code="A1", days=900),
+            _trader(nick="B", code="B1", days=800),
+            _trader(nick="C", code="C1", days=700),
+        ]),
+        "public-subpositions-history": _plain([]),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+    })
+    out = svc.list_lead_traders(limit=1)
+    assert out["unmeasured"]["of_returned"] == 1
+    assert out["unmeasured"]["count"] == 1
+
+
+def test_the_list_carries_its_rendering_pointer(monkeypatch):
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader()]),
+        "public-subpositions-history": _plain([_closed()]),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+    })
+    hint = svc.list_lead_traders(limit=1)["display_hint"]
+    assert "advertised next to measured" in hint
+    assert "unmeasured" in hint
+
+
+def test_one_traders_profile_says_so_too(monkeypatch):
+    """The same silence, one trader at a time."""
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader(nick="Blank", code="B1")]),
+        "public-subpositions-history": _plain([]),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+        "public-current-subpositions": _plain([]),
+        "public-preference-currency": _plain([]),
+    })
+    out = svc.get_lead_trader("B1")
+    assert out["measured"]["closed_trades_sampled"] == 0
+    assert any("missing, not low" in w for w in out["incomplete"])

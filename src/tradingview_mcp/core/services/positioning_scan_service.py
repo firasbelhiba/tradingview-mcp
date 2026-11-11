@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Tuple
 
 from tradingview_mcp.core.errors import ErrorCode, make_error
+from tradingview_mcp.core.services import display_hints
 from tradingview_mcp.core.services import binance_service as bn
 from tradingview_mcp.core.services import positioning_service as ps
 
@@ -143,6 +144,7 @@ def screen_funding(limit: int = 20, direction: str = "both",
             "every 4h, not 8, so a uniform annualisation understates most of them"
         ),
         "non_default_intervals_known": len(intervals),
+        "display_hint": display_hints.FUNDING,
         "disclaimer": "For educational/informational purposes only. Not financial advice.",
     }
     if direction in ("both", "longs_pay"):
@@ -321,14 +323,32 @@ def scan_squeeze_risk(limit: int = 12, candidates: int = 30, period: str = "4h",
             "WATCH_LONG_SQUEEZE": 1, "WATCH_SHORT_SQUEEZE": 1, "LOW": 2}
     graded.sort(key=lambda g: (rank.get(g["squeeze_risk"], 3), -len(g["factors"])))
 
+    # Every elevated name, by symbol only. This used to carry whole
+    # rows: at limit=20 that was 5,753 of 21,710 characters repeating
+    # rows already in `ranked`, byte for byte. The list exists so an
+    # elevated grade cannot hide past the limit, and a symbol does
+    # that job - `ranked` holds the detail for the rows it shows, and
+    # `elevated_beyond_limit` says plainly when there are more.
+    ranked = graded[:limit]
+    elevated = [g["symbol"] for g in graded
+                if g["squeeze_risk"].startswith("ELEVATED")]
+    shown = {g["symbol"] for g in ranked}
+    beyond = [s for s in elevated if s not in shown]
+
     return {
         "source": "Binance USD-M futures (3 bulk requests + 3 per shortlisted symbol)",
         "period": period,
         "scanned": len(rows),
         "shortlisted": len(shortlist),
         "graded": len(graded),
-        "elevated": [g for g in graded if g["squeeze_risk"].startswith("ELEVATED")],
-        "ranked": graded[:limit],
+        "elevated": elevated or None,
+        "elevated_beyond_limit": (
+            {"symbols": beyond,
+             "note": f"graded ELEVATED but outside limit={limit} - raise "
+                     "limit to see their rows"}
+            if beyond else None
+        ),
+        "ranked": ranked,
         "unavailable": sorted(unavailable) or None,
         "shortlist_rule": (
             "funding running against the 24h price move, ranked by "
@@ -350,5 +370,6 @@ def scan_squeeze_risk(limit: int = 12, candidates: int = 30, period: str = "4h",
             "squeeze_factors_for_elevated": ps._SQUEEZE_ELEVATED_FACTORS,
         },
         "filters": {"min_quote_volume_usd": min_quote_volume_usd},
+        "display_hint": display_hints.SQUEEZE,
         "disclaimer": "For educational/informational purposes only. Not financial advice.",
     }
