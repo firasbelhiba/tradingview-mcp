@@ -70,6 +70,14 @@ _DISPLAY_HINT = (
     "numbers."
 )
 
+# Only when something is actually marked live. A wallet holding nothing has
+# no moving number on it, so a refresh control is furniture, and the extra
+# sentence would be a quarter of an otherwise tiny payload.
+_DISPLAY_HINT_LIVE = _DISPLAY_HINT[:-1] + (
+    ", and these marks move: stamp it with as_of and add a refresh control "
+    "if you can send a prompt."
+)
+
 
 class SettleFailed(RuntimeError):
     """A position could not be settled because its bars were unavailable.
@@ -717,8 +725,14 @@ def wallet_status(include_closed: int = 0) -> dict:
         "closed_count": len(closed),
         "settled_this_check": settled or None,
         "unsettled_positions": settle_failures or None,
+        # When these marks were read. A panel drawn from this is a
+        # photograph of a moving thing, and without a time on it there
+        # is no way to tell a fresh one from one left open for an hour.
+        "as_of": store._now(),
         "equity_note": "equity = cash + margin posted + unrealised pnl",
-        "display_hint": _DISPLAY_HINT,
+        "display_hint": (
+            _DISPLAY_HINT_LIVE if open_rows else _DISPLAY_HINT
+        ),
         "simulation": _SIMULATION_NOTICE,
         "slippage": _SLIPPAGE_NOTICE,
     }

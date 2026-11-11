@@ -148,3 +148,57 @@ def test_server_instructions_name_the_wallet_as_a_capability():
     instructions = mcp.instructions or ""
     assert "paper-trading wallet" in instructions
     assert "alerts" in instructions
+
+
+# ── A live panel has to be re-readable ────────────────────────────────────────
+
+def test_wallet_status_says_when_it_was_read(monkeypatch):
+    """A panel drawn from live marks is a photograph of a moving thing.
+
+    Without a time on it there is no telling a fresh panel from one left
+    open for an hour, and the equity on it is quietly wrong.
+    """
+    import re
+
+    ps.reset_wallet(1000.0, "USDT", 0.0, 20.0)
+    _patch(monkeypatch)
+    as_of = ps.wallet_status()["as_of"]
+    assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", as_of), as_of
+    assert as_of.endswith("+00:00"), "a bare local time is not a timestamp"
+
+
+def test_a_wallet_with_live_marks_asks_for_the_stamp_and_the_refresh(monkeypatch):
+    ps.reset_wallet(1000.0, "USDT", 0.0, 20.0)
+    _patch(monkeypatch)
+    ps.open_trade("BTCUSDT", "long", 100.0, "futures", 1.0)
+    hint = ps.wallet_status()["display_hint"]
+    assert "as_of" in hint
+    assert "refresh" in hint
+
+
+def test_an_empty_wallet_is_not_told_to_offer_a_refresh(monkeypatch):
+    """Nothing is marked live, so the control would be furniture — and the
+    sentence would be a quarter of an otherwise tiny payload."""
+    ps.reset_wallet(1000.0, "USDT", 0.0, 20.0)
+    _patch(monkeypatch)
+    hint = ps.wallet_status()["display_hint"]
+    assert "refresh" not in hint
+    assert "draw it as a panel" in hint, "it is still worth drawing"
+
+
+def test_the_refresh_is_asked_for_conditionally(monkeypatch):
+    """The server cannot draw a button, and a host that proved it cannot
+    render ui:// resources will not grow one because we insist."""
+    ps.reset_wallet(1000.0, "USDT", 0.0, 20.0)
+    _patch(monkeypatch)
+    ps.open_trade("BTCUSDT", "long", 100.0, "futures", 1.0)
+    hint = ps.wallet_status()["display_hint"].lower()
+    assert "if you can" in hint, "it must stay conditional, not an order"
+
+
+def test_the_instructions_carry_the_policy_not_the_hint():
+    """The hint rides on every call; the instructions travel once."""
+    instructions = mcp.instructions or ""
+    assert "photograph" in instructions
+    assert "re-asks for the same view" in instructions
+    assert "closes it" in instructions, "a wallet panel's other obvious control"
