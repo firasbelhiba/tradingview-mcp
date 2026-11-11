@@ -219,6 +219,29 @@ def scan_bars_for_exit(
     return None
 
 
+def scan_bars_for_fill(bars: List[dict], side: str,
+                       limit_price: float) -> Optional[dict]:
+    """First bar in which a resting limit order would have been reached.
+
+    A buy rests below the market and is reached when a bar's low trades down
+    to it; a sell rests above and is reached when a bar's high trades up.
+
+    Note the asymmetry with ``scan_bars_for_exit``. Treating a touch as a
+    fill makes a STOP pessimistic — it counts you out of trades that
+    recovered. The same rule makes a LIMIT optimistic: in a real book you sit
+    behind the orders already resting at that price, and a level that is
+    merely tagged often fills nobody. Every result that uses this says so.
+    """
+    for bar in bars:
+        high, low = bar.get("high"), bar.get("low")
+        if high is None or low is None:
+            continue
+        reached = (low <= limit_price) if side == LONG else (high >= limit_price)
+        if reached:
+            return {"price": limit_price, "bar": bar}
+    return None
+
+
 def position_pnl(side: str, entry: float, exit_price: float,
                  quantity: float) -> float:
     """PnL in quote currency. Quantity is in base units, so leverage is

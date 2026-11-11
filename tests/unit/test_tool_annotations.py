@@ -29,6 +29,8 @@ _STATEFUL_TOOLS = {
     "paper_trade_open": "writes a simulated position row",
     "paper_trade_close": "closes a simulated position row",
     "paper_trade_modify": "updates a simulated position's stop/target",
+    "paper_order_place": "writes a resting order row and holds its margin",
+    "paper_order_cancel": "takes a resting order off the book",
 }
 
 
@@ -83,7 +85,8 @@ def test_every_tool_explicitly_declares_destructiveness():
         t.name for t in _all_tools()
         if t.annotations and t.annotations.destructiveHint is True
     }
-    assert destructive <= {"alert_manage", "paper_wallet_reset"}, (
+    assert destructive <= {"alert_manage", "paper_wallet_reset",
+                           "paper_order_cancel"}, (
         f"unexpected tools declaring destructiveHint=True: {sorted(destructive)}"
     )
 

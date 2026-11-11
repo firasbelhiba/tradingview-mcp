@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Resting limit orders for the paper wallet** (`paper_order_place`,
+  `paper_order_list`, `paper_order_cancel`). The wallet could only fill at
+  the current market price, so "buy at support" could not be expressed.
+  Orders resolve retroactively the way stops already do: the next check scans
+  the bars since placement, and a reached order fills at that bar's time with
+  its stop and target settling from there. Margin is held from placement, as
+  an exchange holds it. A limit fill at a touched level is reported as a best
+  case — the opposite bias to a stop, and the results say so.
+
 ### Fixed
 - **`--host 0.0.0.0` refused every request it received.** The MCP SDK enables
   DNS-rebinding protection whenever `FastMCP` is constructed with a localhost

@@ -137,6 +137,11 @@ from tradingview_mcp.core.services.paper_widget import (
     wallet_widget_html,
 )
 from tradingview_mcp.core.services.brief_service import market_brief as _market_brief
+from tradingview_mcp.core.services.paper_orders import (
+    cancel_order as _cancel_order,
+    list_orders as _list_orders,
+    place_order as _place_order,
+)
 from tradingview_mcp.core.services.onboarding_service import (
     alert_schedule_recipe as _alert_schedule,
     get_started as _get_started,
@@ -2122,6 +2127,146 @@ async def alert_schedule(every_minutes: int = 15) -> dict:
 
 
 # -- Paper trading -------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(title="Place Paper Order", readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True))
+async def paper_order_place(
+    symbol: Annotated[
+        str,
+        Field(description="Pair, e.g. BTCUSDT"),
+    ],
+    side: Annotated[
+        str,
+        Field(description="\"long\" to rest a buy below the market, \"short\" "
+            "to rest a sell above it"),
+    ],
+    notional: Annotated[
+        float,
+        Field(description="Position value in the wallet's currency if it "
+            "fills. Margin is notional / leverage, and it is held from now"),
+    ],
+    limit_price: Annotated[
+        float,
+        Field(description="The level to wait at. A buy must sit below the "
+            "current price and a sell above it"),
+    ],
+    market: Annotated[
+        str,
+        Field(description="\"futures\" or \"spot\" (spot is long-only, "
+            "unlevered)"),
+    ] = "futures",
+    leverage: Annotated[
+        float,
+        Field(description="1 to the wallet's maximum; futures only"),
+    ] = 1.0,
+    stop_loss: Annotated[
+        Optional[float],
+        Field(description="Exit if it goes wrong, checked against the LIMIT "
+            "price rather than today's price"),
+    ] = None,
+    take_profit: Annotated[
+        Optional[float],
+        Field(description="Exit if it goes right, checked against the LIMIT "
+            "price"),
+    ] = None,
+    good_for_hours: Annotated[
+        Optional[float],
+        Field(description="Cancel it automatically after this long. Omit and "
+            "it rests until cancelled"),
+    ] = None,
+    note: Annotated[
+        Optional[str],
+        Field(description="Why this level, so the history is reviewable"),
+    ] = None,
+) -> dict:
+    """Leave a simulated order resting at a level instead of buying now.
+
+    SIMULATED: nothing reaches an exchange.
+
+    This is the tool for "buy at support" and "sell at resistance". Nothing
+    watches the market — the next time the wallet is checked, the bars since
+    you placed it are scanned, and if one reached your level the order fills
+    at that bar's time, with its stop and target settling from there. An
+    order placed Monday and checked Friday resolves Monday's fill correctly.
+
+    Margin is held the moment it is placed, as an exchange holds it, so two
+    orders cannot both fill on the same cash.
+
+    A fill at a touched level is a BEST CASE — in a real book you queue
+    behind whoever is already resting there, and a level merely tagged often
+    fills nobody.
+
+    An order that would fill instantly is refused: use paper_trade_open to
+    trade at the current price.
+
+    Returns:
+        dict with the resting order, the distance left to run, the risk if
+        it fills, and how filling works. On ANY failure returns a structured
+        error envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            _place_order, symbol, side, notional, limit_price, market,
+            leverage, stop_loss, take_profit, good_for_hours, note,
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="paper_order_place")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="List Paper Orders", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def paper_order_list(
+    status: Annotated[
+        Optional[str],
+        Field(description="\"pending\", \"filled\", \"cancelled\", "
+            "\"expired\", or omit for all"),
+    ] = None,
+    limit: Annotated[
+        int,
+        Field(description="Orders to return, 1-500"),
+    ] = 50,
+) -> dict:
+    """Resting simulated orders, and what became of the others.
+
+    Settles first, so an order reached since the last look is already shown
+    as filled rather than still waiting. Pending orders carry the distance
+    left to run, and the total margin they are holding — cash that has left
+    `cash` without yet being in any position.
+
+    Returns:
+        dict with orders, counts, the margin they hold and the nearest one
+        to filling. On ANY failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(_list_orders, status, limit)
+    except Exception as e:
+        return exception_to_envelope(e, context="paper_order_list")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Cancel Paper Order", readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False))
+async def paper_order_cancel(
+    order_id: Annotated[
+        int,
+        Field(description="From paper_order_place or paper_order_list"),
+    ],
+    note: Annotated[
+        Optional[str],
+        Field(description="Why it was pulled"),
+    ] = None,
+) -> dict:
+    """Take a resting simulated order off the book and release its margin.
+
+    Only a pending order can be cancelled. One that already filled is a
+    position now — close that with paper_trade_close.
+
+    Returns:
+        dict with the cancelled order and the margin released. On ANY
+        failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(_cancel_order, order_id, note)
+    except Exception as e:
+        return exception_to_envelope(e, context="paper_order_cancel")
+
+
 #
 # A SIMULATOR. This package holds no exchange credentials and calls no
 # authenticated endpoint, so these tools cannot place a real order or move real

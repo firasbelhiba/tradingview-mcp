@@ -60,11 +60,11 @@ Backtest an RSI strategy on BTC on the daily timeframe
 > [!NOTE]
 > **Does it need — or risk — your TradingView account? No.** This server does **not** log into, scrape, or automate a TradingView session, and it requires no TradingView account or API key. Market data is fetched server-side from public endpoints, so there is no account of yours in the loop and no browser/UI automation. *(This is different from MCP servers that drive the TradingView Desktop app via Chrome DevTools.)* You are responsible for ensuring your own use complies with the terms of any data source you point it at.
 
-## 🧪 This fork adds 35 tools — including a paper-trading wallet
+## 🧪 This fork adds 38 tools — including a paper-trading wallet
 
 > This is a fork of [atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)
 > (MIT, © 2025 Ahmet Taner Atila). Everything below is added on top of the
-> upstream tools documented further down. **74 tools, 1,024 tests.**
+> upstream tools documented further down. **77 tools, 1,045 tests.**
 
 **New here? Start by asking your AI these three things:**
 
@@ -86,6 +86,9 @@ tested before it costs anything.
 | `paper_trade_open` | Long or short, spot or futures, with stop and target |
 | `paper_trade_close` | Close at the live price |
 | `paper_trade_modify` | Move the stop or target (trailing) |
+| `paper_order_place` | Rest an order at a level — buy at support, sell at resistance |
+| `paper_order_list` | What is resting, how far from filling, and the margin it holds |
+| `paper_order_cancel` | Pull a resting order and release its margin |
 | `paper_wallet_status` | Cash, positions marked live, equity, unrealised PnL |
 | `paper_trade_history` | Win rate, profit factor, expectancy, drawdown, costs, and an equity curve with the drawdown at every point |
 | `paper_wallet_widget` | The wallet as a `ui://` panel (MCP Apps hosts only) |
@@ -102,6 +105,15 @@ It is deliberately hard where the market is hard:
   fees and funding consumed, so a strategy that only works before costs is
   visible as such.
 - **Liquidation** is checked against Binance's own mark price.
+- **Resting orders fill retroactively.** Nothing watches the market: the
+  next check scans the bars since you placed the order, and one that was
+  reached fills at that bar's time, with its stop and target settling from
+  there. An order placed Monday and checked Friday resolves Monday's fill.
+  Margin is held from placement, so two orders cannot fill on the same cash.
+- **A limit fill is a best case**, and this is the one place the simulator
+  flatters you. Treating a touch as a fill makes a *stop* pessimistic, which
+  is right; the same rule on an *entry* is optimistic, because in a real
+  book you queue behind everyone already resting at that price.
 - **Slippage is not modelled** — fills land exactly on the level, so treat
   simulated exit quality as a best case. Every result says so.
 

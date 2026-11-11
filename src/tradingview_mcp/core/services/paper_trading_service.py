@@ -256,13 +256,57 @@ def _settle_one(position: Dict[str, Any], wallet: Dict[str, Any]) -> Optional[di
     }
 
 
-def settle(wallet: Optional[Dict[str, Any]] = None) -> Tuple[List[dict], List[dict]]:
-    """Run settlement across every open position. Safe to call repeatedly.
+def _pending_rows() -> list:
+    """Resting orders, shown with the wallet because margin they hold is
+    cash that is gone from `cash` and not yet in any position."""
+    from tradingview_mcp.core.services import paper_orders
 
-    Returns ``(fills, failures)``. They are separate lists because they mean
-    opposite things: a fill is a decided outcome, a failure means the position
-    could not be checked at all and is still live with its levels unknown.
+    return [
+        paper_orders._order_row(o) for o in store.list_orders(store.PENDING)
+    ]
+
+
+def settle_everything(
+    wallet: Optional[Dict[str, Any]] = None,
+) -> Tuple[List[dict], List[dict], List[dict], List[dict]]:
+    """Resting orders first, then positions. Safe to call repeatedly.
+
+    Returns ``(orders_resolved, orders_unchecked, fills, failures)``.
+
+    Orders go first because a fill stamps its position with the bar that
+    reached it, so the position scan that follows starts from that bar. That
+    is what lets an order filled on Tuesday and stopped out on Wednesday
+    resolve both in one check on Friday — and it carries the existing bias
+    with it, since a bar holding both the fill and the stop ends as a loss.
     """
+    from tradingview_mcp.core.services import paper_orders
+
+    wallet = wallet or store.get_wallet()
+    if not wallet:
+        return [], [], [], []
+    orders_resolved, orders_unchecked = paper_orders.settle_orders(wallet)
+    if orders_resolved:
+        wallet = store.get_wallet()  # a fill moves cash
+    fills, failures = _settle_positions(wallet)
+    return orders_resolved, orders_unchecked, fills, failures
+
+
+def settle(wallet: Optional[Dict[str, Any]] = None) -> Tuple[List[dict], List[dict]]:
+    """The positions-only view of settlement, for callers that only need fills.
+
+    Resting orders are still resolved — they have to be, or a position could
+    settle before the order that created it existed.
+    """
+    _, _, fills, failures = settle_everything(wallet)
+    return fills, failures
+
+
+def _settle_positions(
+    wallet: Optional[Dict[str, Any]] = None,
+) -> Tuple[List[dict], List[dict]]:
+    """``(fills, failures)``. They mean opposite things: a fill is a decided
+    outcome, a failure means the position could not be checked at all and is
+    still live with its levels unknown."""
     wallet = wallet or store.get_wallet()
     if not wallet:
         return [], []
@@ -644,7 +688,9 @@ def wallet_status(include_closed: int = 0) -> dict:
     if error:
         return error
 
-    settled, settle_failures = settle(wallet)
+    orders_done, orders_stuck, settled, settle_failures = (
+        settle_everything(wallet)
+    )
     wallet = store.get_wallet()
 
     open_rows: List[dict] = []
@@ -725,6 +771,9 @@ def wallet_status(include_closed: int = 0) -> dict:
         "closed_count": len(closed),
         "settled_this_check": settled or None,
         "unsettled_positions": settle_failures or None,
+        "orders_resolved_this_check": orders_done or None,
+        "orders_unchecked": orders_stuck or None,
+        "pending_orders": _pending_rows() or None,
         # When these marks were read. A panel drawn from this is a
         # photograph of a moving thing, and without a time on it there
         # is no way to tell a fresh one from one left open for an hour.

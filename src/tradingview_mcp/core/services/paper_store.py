@@ -24,12 +24,18 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _init_lock = Lock()
 _initialised: set = set()
 
 OPEN = "open"
 CLOSED = "closed"
+
+# Order states. PENDING rests; the other three are terminal.
+PENDING = "pending"
+FILLED = "filled"
+CANCELLED = "cancelled"
+EXPIRED = "expired"
 
 SPOT = "spot"
 FUTURES = "futures"
@@ -110,6 +116,34 @@ def _ensure_schema(conn: sqlite3.Connection, key: str) -> None:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status)"
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS orders (
+                    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    symbol          TEXT    NOT NULL,
+                    market          TEXT    NOT NULL,
+                    side            TEXT    NOT NULL,
+                    notional        REAL    NOT NULL,
+                    leverage        REAL    NOT NULL,
+                    margin_held     REAL    NOT NULL,
+                    limit_price     REAL    NOT NULL,
+                    stop_loss       REAL,
+                    take_profit     REAL,
+                    status          TEXT    NOT NULL,
+                    placed_at       TEXT    NOT NULL,
+                    placed_ms       INTEGER NOT NULL,
+                    expires_ms      INTEGER,
+                    resolved_at     TEXT,
+                    resolved_ms     INTEGER,
+                    position_id     INTEGER,
+                    resolution      TEXT,
+                    note            TEXT
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)"
             )
             conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
         _initialised.add(key)
@@ -218,6 +252,72 @@ def update_position(position_id: int, **fields: Any) -> None:
         conn.execute(
             f"UPDATE positions SET {assignments} WHERE id = ?",
             list(fields.values()) + [position_id],
+        )
+
+
+# ── Orders ────────────────────────────────────────────────────────────────────
+#
+# A resting order the wallet has not filled yet. It holds margin from the
+# moment it is placed, the way an exchange does: without that, two orders
+# resting on the same cash could both fill, which would teach something false
+# about position sizing.
+
+def add_order(**fields: Any) -> Dict[str, Any]:
+    columns = (
+        "symbol", "market", "side", "notional", "leverage", "margin_held",
+        "limit_price", "stop_loss", "take_profit", "status", "placed_at",
+        "placed_ms", "expires_ms", "note",
+    )
+    values = [fields.get(c) for c in columns]
+    with _connect() as conn:
+        cur = conn.execute(
+            f"INSERT INTO orders ({', '.join(columns)}) "
+            f"VALUES ({', '.join('?' for _ in columns)})",
+            values,
+        )
+        row = conn.execute("SELECT * FROM orders WHERE id = ?",
+                           (cur.lastrowid,)).fetchone()
+    return dict(row)
+
+
+def get_order(order_id: int) -> Optional[Dict[str, Any]]:
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM orders WHERE id = ?",
+                           (order_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_orders(status: Optional[str] = None,
+                limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    sql = "SELECT * FROM orders"
+    params: list = []
+    if status:
+        sql += " WHERE status = ?"
+        params.append(status)
+    sql += " ORDER BY id DESC"
+    if limit:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+    with _connect() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def resolve_order(order_id: int, status: str, resolution: str,
+                  position_id: Optional[int] = None,
+                  resolved_ms: Optional[int] = None) -> None:
+    """Take an order out of PENDING, recording what became of it."""
+    resolved_ms = resolved_ms if resolved_ms is not None else now_ms()
+    from datetime import datetime as _dt
+    resolved_at = _dt.fromtimestamp(
+        resolved_ms / 1000.0, tz=timezone.utc
+    ).isoformat(timespec="seconds")
+    with _connect() as conn:
+        conn.execute(
+            "UPDATE orders SET status = ?, resolution = ?, position_id = ?, "
+            "resolved_at = ?, resolved_ms = ? WHERE id = ?",
+            (status, resolution, position_id, resolved_at, resolved_ms,
+             order_id),
         )
 
 
