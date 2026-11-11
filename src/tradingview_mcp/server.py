@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 from typing import Optional
 
@@ -125,6 +126,13 @@ from tradingview_mcp.core.services.copytrading_service import (
 )
 from tradingview_mcp.core.services.copytrading_trades_service import (
     get_lead_trader_trades,
+)
+from mcp.types import EmbeddedResource, TextContent, TextResourceContents
+from pydantic import AnyUrl
+
+from tradingview_mcp.core.services.paper_widget import (
+    ui_resource_uri,
+    wallet_widget_html,
 )
 from tradingview_mcp.core.services.paper_trading_service import (
     close_trade as _paper_close,
@@ -2154,6 +2162,48 @@ async def paper_trade_history(limit: int = 50) -> dict:
         return await asyncio.to_thread(_paper_history, limit)
     except Exception as e:
         return exception_to_envelope(e, context="paper_trade_history")
+
+
+@mcp.tool(structured_output=False, annotations=ToolAnnotations(title="Paper Wallet Widget", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def paper_wallet_widget(include_closed: int = 0) -> list:
+    """The paper wallet as a rendered panel, for hosts that support MCP Apps.
+
+    Returns the same data as paper_wallet_status plus a ui:// HTML resource.
+    A host that implements MCP Apps / MCP-UI draws the panel inline — equity,
+    open positions with their stops and liquidation prices, and buttons. A
+    host that does not simply shows the text summary, which is why this
+    returns both and hides nothing behind a button.
+
+    Use paper_wallet_status when you want the full JSON to reason over; use
+    this when the person should SEE the wallet.
+
+    Args:
+        include_closed: Also include this many recent closed positions
+
+    Returns:
+        A text summary plus an embedded ui:// resource. On ANY failure the
+        text carries the error envelope.
+    """
+    try:
+        status = await asyncio.to_thread(_paper_status, include_closed)
+        summary = json.dumps(status, default=str)
+        html = await asyncio.to_thread(wallet_widget_html, status)
+        return [
+            TextContent(type="text", text=summary),
+            EmbeddedResource(
+                type="resource",
+                resource=TextResourceContents(
+                    uri=AnyUrl(ui_resource_uri()),
+                    mimeType="text/html",
+                    text=html,
+                ),
+            ),
+        ]
+    except Exception as e:
+        return [TextContent(
+            type="text",
+            text=json.dumps(exception_to_envelope(e, context="paper_wallet_widget")),
+        )]
 
 
 # ── Alerts ─────────────────────────────────────────────────────────────────────
