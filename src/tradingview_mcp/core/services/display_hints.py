@@ -92,3 +92,9 @@ TRADE_HISTORY = hint(
     "draw the equity curve if it was asked for, and show what fees and "
     "funding consumed, not only the win rate."
 )
+
+
+WALLETS_LISTED = hint(
+    "draw one row per wallet with its realised return and what is open; "
+    "say that unrealised PnL is not in these figures."
+)

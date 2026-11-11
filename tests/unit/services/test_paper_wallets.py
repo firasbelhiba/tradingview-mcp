@@ -150,7 +150,8 @@ def test_listing_shows_what_exists_and_nothing_else(monkeypatch):
     assert store.list_wallet_names() == ["main", "swing"]
 
     payload = svc.wallet_names()
-    assert payload["wallets"] == ["main", "swing"]
+    assert payload["names"] == ["main", "swing"]
+    assert [r["wallet"] for r in payload["wallets"]] == ["main", "swing"]
     assert payload["default"] == "main"
     assert "every caller can name every wallet" in payload["scope"], (
         "separation is not privacy, and the result has to say so"
@@ -165,3 +166,56 @@ def test_the_selection_does_not_leak_between_calls(monkeypatch):
     svc.reset_wallet(2000.0, wallet=None)
     assert store.active_wallet() == "main"
     assert svc.wallet_status(wallet="swing")["wallet"]["starting_balance"] == 1000.0
+
+
+# ── The listing has to be worth drawing ───────────────────────────────────────
+
+def test_the_listing_carries_figures_not_just_names(monkeypatch):
+    _patch(monkeypatch)
+    svc.reset_wallet(10000.0, wallet=None)
+    svc.reset_wallet(500.0, wallet="risky")
+    svc.open_trade("BTCUSDT", "long", 1000.0, "futures", 2.0, wallet=None)
+    po.place_order("BTCUSDT", "long", 200.0, 90.0, wallet="risky")
+
+    rows = {r["wallet"]: r for r in svc.wallet_names()["wallets"]}
+    assert rows["main"]["open_positions"] == 1
+    assert rows["main"]["margin_in_positions"] == pytest.approx(500.0)
+    assert rows["risky"]["pending_orders"] == 1
+    assert rows["risky"]["margin_on_resting_orders"] == pytest.approx(200.0)
+    assert rows["risky"]["open_positions"] == 0
+
+
+def test_the_listing_says_what_its_equity_leaves_out(monkeypatch):
+    """It is a cheap read with no live prices, so the gap has to be named
+    rather than letting the number look like the whole picture."""
+    _patch(monkeypatch)
+    svc.reset_wallet(1000.0, wallet=None)
+    out = svc.wallet_names()
+    assert "does NOT include unrealised" in out["figures_note"]
+    assert "display_hint" in out
+    assert "unrealised" in out["display_hint"]
+
+
+def test_listing_wallets_does_not_change_which_one_is_selected(monkeypatch):
+    """It walks every wallet to read them; leaving the last one selected
+    would silently redirect whatever the caller did next."""
+    _patch(monkeypatch)
+    svc.reset_wallet(1000.0, wallet="alpha")
+    svc.reset_wallet(1000.0, wallet="zulu")
+    store.select_wallet("alpha")
+    svc.wallet_names()
+    assert store.active_wallet() == "alpha"
+
+
+def test_listing_touches_no_network(monkeypatch):
+    """One SQLite read per wallet. A price fetch per symbol per wallet would
+    make a harmless-looking listing the slowest call on the server."""
+    _patch(monkeypatch)
+    svc.reset_wallet(1000.0, wallet=None)
+    svc.open_trade("BTCUSDT", "long", 100.0, "futures", 1.0, wallet=None)
+
+    def boom(*a, **k):
+        raise AssertionError("wallet_names must not fetch prices")
+
+    monkeypatch.setattr(svc.px, "mark_price", boom)
+    assert svc.wallet_names()["count"] == 1

@@ -1006,26 +1006,72 @@ def trade_history(limit: int = 50, include_equity_curve: bool = False,
 
 
 def wallet_names() -> dict:
-    """Every simulated wallet that has a file, and which one is the default.
+    """Every simulated wallet that has a file, with enough to tell them apart.
 
-    Each name is a separate SQLite file, so the balances, positions, resting
-    orders and history of one wallet are invisible to another. That is
-    separation, not privacy: anything that can reach this server can name
-    any wallet.
+    Deliberately cheap: one SQLite read per wallet and no network. Marking
+    open positions live would mean a price fetch per symbol per wallet, so
+    the figures here are the settled ones and `equity_excl_unrealised` says
+    which part is missing. Ask for a wallet's status to price it live.
+
+    Each name is a separate file, so the balances, positions, resting orders
+    and history of one wallet are invisible to another. That is separation,
+    not privacy: anything that can reach this server can name any wallet.
     """
     names = store.list_wallet_names()
+    active = store.active_wallet()
+    rows = []
+    for name in names:
+        selected = None if name == store.DEFAULT_WALLET else name
+        store.select_wallet(selected)
+        wallet = store.get_wallet()
+        if not wallet:
+            continue
+        positions = store.list_positions()
+        closed = [p for p in positions if p["status"] == store.CLOSED]
+        realised = sum(p["realised_pnl"] or 0.0 for p in closed)
+        margin = sum(p["margin"] for p in positions
+                     if p["status"] == store.OPEN)
+        held = sum(o["margin_held"] for o in store.list_orders(store.PENDING))
+        rows.append({
+            "wallet": name,
+            "currency": wallet["currency"],
+            "starting_balance": wallet["starting_balance"],
+            "cash": round(wallet["cash"], 2),
+            "margin_in_positions": round(margin, 2),
+            "margin_on_resting_orders": round(held, 2),
+            "equity_excl_unrealised": round(wallet["cash"] + margin + held, 2),
+            "realised_pnl": round(realised, 2),
+            "realised_return_pct": round(
+                realised / wallet["starting_balance"] * 100, 2
+            ) if wallet["starting_balance"] else None,
+            "open_positions": len(positions) - len(closed),
+            "closed_trades": len(closed),
+            "pending_orders": len(store.list_orders(store.PENDING)),
+            "created_at": wallet["created_at"],
+            "note": wallet["note"],
+        })
+    store.select_wallet(None if active == store.DEFAULT_WALLET else active)
+
     return {
-        "wallets": names,
+        "wallets": rows,
+        "names": names,
         "default": store.DEFAULT_WALLET,
-        "count": len(names),
+        "count": len(rows),
+        "figures_note": (
+            "equity_excl_unrealised is cash plus the margin sitting in open "
+            "positions and resting orders. It does NOT include unrealised "
+            "profit or loss, which needs a live price per symbol - ask for a "
+            "wallet's status for that."
+        ),
         "note": (
             "Pass `wallet` to any paper tool to work in one of these; omit it "
-            f"for {store.DEFAULT_WALLET}. A name that has no file yet is "
-            "created by resetting a wallet with it."
+            f"for {store.DEFAULT_WALLET}. A name with no file yet is created "
+            "by resetting a wallet with it."
         ),
         "scope": (
-            "Separate balances, not separate accounts — every caller can "
+            "Separate balances, not separate accounts - every caller can "
             "name every wallet."
         ),
+        "display_hint": display_hints.WALLETS_LISTED,
         "simulation": _SIMULATION_NOTICE,
     }
