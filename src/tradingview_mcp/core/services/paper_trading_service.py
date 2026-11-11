@@ -48,6 +48,28 @@ _SLIPPAGE_NOTICE = (
     "quality as a best case."
 )
 
+# A hint to the assistant reading this result, not to the user.
+#
+# The server cannot draw anything — the ui:// resource it can emit is ignored
+# by a local desktop host (measured 2026-11-11). But the assistant usually
+# CAN draw, through whatever artifact or inline-visual tool it has, and it
+# reads tool results. So the result asks for the panel rather than hoping the
+# person thinks to.
+#
+# Phrased as a conditional preference, not a command: a caller mid-way
+# through reasoning about a strategy should not be forced to stop and render,
+# and an assistant with no rendering tool should ignore it without ceremony.
+# Deliberately terse. The full policy travels once, in the server's
+# connection instructions; repeating it in every result cost 890 bytes a call
+# and took over half the payload of an empty wallet. This is the trigger, not
+# the policy.
+_DISPLAY_HINT = (
+    "If the person is looking at this rather than you reading it to reason "
+    "with, draw it as a panel (see this server's PRESENTATION instructions); "
+    "surface unsettled_positions and price_errors, not just the healthy "
+    "numbers."
+)
+
 
 class SettleFailed(RuntimeError):
     """A position could not be settled because its bars were unavailable.
@@ -670,6 +692,7 @@ def wallet_status(include_closed: int = 0) -> dict:
         "settled_this_check": settled or None,
         "unsettled_positions": settle_failures or None,
         "equity_note": "equity = cash + margin posted + unrealised pnl",
+        "display_hint": _DISPLAY_HINT,
         "simulation": _SIMULATION_NOTICE,
         "slippage": _SLIPPAGE_NOTICE,
     }
@@ -786,6 +809,7 @@ def trade_history(limit: int = 50) -> dict:
             "closed_by": reasons,
         },
         "unsettled_positions": settle_failures or None,
+        "display_hint": _DISPLAY_HINT,
         "cost_note": (
             "Fees and funding are already inside realised_pnl; "
             "total_fees_paid and total_funding_paid show how much of the "

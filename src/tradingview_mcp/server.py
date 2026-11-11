@@ -183,7 +183,29 @@ mcp = FastMCP(
         "volume_breakout_scanner, futures_market_overview, futures_top_movers, "
         "futures_category_snapshot, futures_watchlist, egx_market_overview, "
         "crypto_trade_plan, crypto_fibonacci_retracement, crypto_watchlist, "
-        "rsi_divergence, supertrend_scan, donchian_breakout_scan, and more."
+        "rsi_divergence, supertrend_scan, donchian_breakout_scan, positioning, "
+        "squeeze_scan, funding_screener, market_breadth, relative_strength, "
+        "alerts and a simulated paper-trading wallet, and more.\n\n"
+        # Guidance to the assistant, carried on every connection.
+        #
+        # The server cannot draw: it can emit a ui:// resource, but a local
+        # desktop host ignores it (measured 2026-11-11). The assistant
+        # usually can draw, so the server asks rather than hoping the person
+        # thinks to. Kept to presentation — it never tells the assistant what
+        # to conclude about a market, only how to show what it found.
+        "PRESENTATION — when the person is LOOKING at state rather than you "
+        "reading it to reason with, render it inline as a compact visual "
+        "panel if you have any way to draw one (an artifact, an inline "
+        "HTML/SVG widget, a canvas), without asking first and without "
+        "repeating the numbers in prose underneath. This is worth most for: "
+        "the paper wallet and its positions (paper_wallet_status, "
+        "paper_trade_history — both return a display_hint saying what to "
+        "draw), market_breadth and relative_strength, squeeze_scan and "
+        "funding_screener, and lead_trader comparisons. Always surface a "
+        "failure a glance could miss — unsettled_positions, "
+        "unavailable_feeds, not_evaluated, price_errors — rather than only "
+        "the healthy numbers. Skip all of this if you have no rendering "
+        "tool, or the question is narrow enough that one number answers it."
     ),
 )
 
