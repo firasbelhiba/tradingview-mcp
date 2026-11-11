@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Named wallets** (`paper_wallet_list`, and a `wallet` argument on every
+  paper tool). The wallet table is `CHECK (id = 1)` and positions carry no
+  wallet column, so a second wallet cannot share the database; each name gets
+  its own SQLite file instead, which makes isolation total rather than a
+  WHERE clause someone could forget. The default wallet keeps its original
+  filename, so an existing installation opens exactly the database it always
+  did. The name becomes a filename on a server that answers from the open
+  internet, so it is validated to `[a-z0-9_-]{1,32}` before anything touches
+  the filesystem. Separation, not privacy: every caller can name every
+  wallet, and the result says so.
 - **Resting limit orders for the paper wallet** (`paper_order_place`,
   `paper_order_list`, `paper_order_cancel`). The wallet could only fill at
   the current market price, so "buy at support" could not be expressed.

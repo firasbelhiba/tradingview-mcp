@@ -60,11 +60,11 @@ Backtest an RSI strategy on BTC on the daily timeframe
 > [!NOTE]
 > **Does it need — or risk — your TradingView account? No.** This server does **not** log into, scrape, or automate a TradingView session, and it requires no TradingView account or API key. Market data is fetched server-side from public endpoints, so there is no account of yours in the loop and no browser/UI automation. *(This is different from MCP servers that drive the TradingView Desktop app via Chrome DevTools.)* You are responsible for ensuring your own use complies with the terms of any data source you point it at.
 
-## 🧪 This fork adds 38 tools — including a paper-trading wallet
+## 🧪 This fork adds 39 tools — including a paper-trading wallet
 
 > This is a fork of [atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)
 > (MIT, © 2025 Ahmet Taner Atila). Everything below is added on top of the
-> upstream tools documented further down. **77 tools, 1,048 tests.**
+> upstream tools documented further down. **78 tools, 1,078 tests.**
 
 **New here? Start by asking your AI these three things:**
 
@@ -82,7 +82,8 @@ tested before it costs anything.
 
 | Tool | What it does |
 |---|---|
-| `paper_wallet_reset` | Create or wipe the wallet. **You** pick the starting balance — it has no default, because it silently defines every later number. Wiping a wallet that holds positions needs an explicit confirmation |
+| `paper_wallet_list` | Every wallet by name — one per strategy, each a separate balance |
+| `paper_wallet_reset` | Create or wipe a wallet. **You** pick the starting balance — it has no default, because it silently defines every later number. Wiping a wallet that holds positions needs an explicit confirmation |
 | `paper_trade_open` | Long or short, spot or futures, with stop and target |
 | `paper_trade_close` | Close at the live price |
 | `paper_trade_modify` | Move the stop or target (trailing) |

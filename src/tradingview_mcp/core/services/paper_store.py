@@ -18,13 +18,19 @@ Storage location, in order:
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from contextvars import ContextVar
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
 _SCHEMA_VERSION = 2
+
+# A sentinel, because None is a meaningful argument here: it means
+# the default wallet, not "nothing was passed".
+_UNSET: Any = object()
 _init_lock = Lock()
 _initialised: set = set()
 
@@ -41,13 +47,93 @@ SPOT = "spot"
 FUTURES = "futures"
 
 
-def db_path() -> Path:
+# ── Which wallet ──────────────────────────────────────────────────────────────
+#
+# A ContextVar rather than a module global: tool calls are offloaded with
+# asyncio.to_thread, which copies the caller's context into the worker, so
+# each call sees its own selection and two concurrent calls on different
+# wallets cannot read each other's.
+
+_WALLET_NAME: ContextVar[Optional[str]] = ContextVar("paper_wallet", default=None)
+
+# Deliberately strict. This name becomes a path segment on a server that
+# answers from the open internet, so the question is not "what reads nicely"
+# but "what cannot escape the data directory". No dots, so no "..".
+_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+DEFAULT_WALLET = "main"
+
+
+class BadWalletName(ValueError):
+    """The name could not be used as a filename safely."""
+
+
+def normalise_wallet_name(name: Optional[str]) -> Optional[str]:
+    """``None`` for the default wallet, or a name proven safe as a filename."""
+    if name is None:
+        return None
+    cleaned = str(name).strip().lower()
+    if not cleaned or cleaned == DEFAULT_WALLET:
+        return None
+    if not _NAME_RE.match(cleaned):
+        raise BadWalletName(
+            f"wallet name {name!r} is not usable: use 1-32 characters of "
+            "a-z, 0-9, hyphen or underscore, starting with a letter or "
+            "digit. The name becomes a filename, so anything else is refused."
+        )
+    return cleaned
+
+
+def select_wallet(name: Optional[str]) -> Optional[str]:
+    """Point this call at a wallet. Raises BadWalletName on anything unsafe."""
+    chosen = normalise_wallet_name(name)
+    _WALLET_NAME.set(chosen)
+    return chosen
+
+
+def active_wallet() -> str:
+    return _WALLET_NAME.get() or DEFAULT_WALLET
+
+
+def wallet_dir() -> Path:
     explicit = os.environ.get("TRADINGVIEW_MCP_PAPER_DB")
     if explicit:
-        return Path(explicit).expanduser()
+        return Path(explicit).expanduser().parent
     data_dir = os.environ.get("TRADINGVIEW_MCP_DATA_DIR")
-    base = Path(data_dir).expanduser() if data_dir else Path.home() / ".tradingview-mcp"
-    return base / "paper_trading.sqlite3"
+    return Path(data_dir).expanduser() if data_dir else Path.home() / ".tradingview-mcp"
+
+
+def list_wallet_names() -> List[str]:
+    """Every wallet that has a file on disk, the default one included."""
+    names = []
+    directory = wallet_dir()
+    if db_path(None).exists():
+        names.append(DEFAULT_WALLET)
+    if directory.is_dir():
+        for path in sorted(directory.glob("paper-*.sqlite3")):
+            candidate = path.name[len("paper-"):-len(".sqlite3")]
+            if _NAME_RE.match(candidate):
+                names.append(candidate)
+    return names
+
+
+def db_path(name: Optional[str] = _UNSET) -> Path:
+    """The file backing a wallet. Omit the name to use this call's selection.
+
+    The default wallet keeps the original filename, so an installation that
+    predates named wallets opens exactly the database it always did.
+    """
+    chosen = _WALLET_NAME.get() if name is _UNSET else normalise_wallet_name(name)
+    explicit = os.environ.get("TRADINGVIEW_MCP_PAPER_DB")
+    if explicit:
+        path = Path(explicit).expanduser()
+        if chosen is None:
+            return path
+        return path.with_name(f"paper-{chosen}.sqlite3")
+    base = wallet_dir()
+    if chosen is None:
+        return base / "paper_trading.sqlite3"
+    return base / f"paper-{chosen}.sqlite3"
 
 
 def _connect() -> sqlite3.Connection:

@@ -153,6 +153,7 @@ from tradingview_mcp.core.services.paper_trading_service import (
     reset_wallet as _paper_reset,
     trade_history as _paper_history,
     wallet_status as _paper_status,
+    wallet_names as _paper_wallets,
 )
 from tradingview_mcp.core.services.crypto_analysis_service import (
     analyze_crypto_fibonacci,
@@ -2130,6 +2131,29 @@ async def alert_schedule(every_minutes: int = 15) -> dict:
 
 # -- Paper trading -------------------------------------------------------------
 
+@mcp.tool(annotations=ToolAnnotations(title="List Paper Wallets", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
+async def paper_wallet_list() -> dict:
+    """Every simulated wallet that exists, by name.
+
+    Each wallet is a separate balance with its own positions, resting orders
+    and history — one for the strategy being traded, another for the idea
+    being tested, so a high-leverage experiment cannot contaminate the record
+    of what actually works.
+
+    Names are separation, not privacy: anything that can reach this server
+    can name any wallet.
+
+    Returns:
+        dict with the wallet names and which one is the default. On ANY
+        failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(_paper_wallets)
+    except Exception as e:
+        return exception_to_envelope(e, context="paper_wallet_list")
+
+
+
 @mcp.tool(annotations=ToolAnnotations(title="Place Paper Order", readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True))
 async def paper_order_place(
     symbol: Annotated[
@@ -2179,6 +2203,12 @@ async def paper_order_place(
         Optional[str],
         Field(description="Why this level, so the history is reviewable"),
     ] = None,
+    wallet: Annotated[
+        Optional[str],
+        Field(description="Which wallet, e.g. \"swing\" or \"risky\". Omit "
+            "for the default one. Each name is a separate balance, with its "
+            "own positions, orders and history"),
+    ] = None,
 ) -> dict:
     """Leave a simulated order resting at a level instead of buying now.
 
@@ -2209,6 +2239,7 @@ async def paper_order_place(
         return await asyncio.to_thread(
             _place_order, symbol, side, notional, limit_price, market,
             leverage, stop_loss, take_profit, good_for_hours, note,
+            wallet,
         )
     except Exception as e:
         return exception_to_envelope(e, context="paper_order_place")
@@ -2225,6 +2256,12 @@ async def paper_order_list(
         int,
         Field(description="Orders to return, 1-500"),
     ] = 50,
+    wallet: Annotated[
+        Optional[str],
+        Field(description="Which wallet, e.g. \"swing\" or \"risky\". Omit "
+            "for the default one. Each name is a separate balance, with its "
+            "own positions, orders and history"),
+    ] = None,
 ) -> dict:
     """Resting simulated orders, and what became of the others.
 
@@ -2238,7 +2275,7 @@ async def paper_order_list(
         to filling. On ANY failure returns a structured error envelope.
     """
     try:
-        return await asyncio.to_thread(_list_orders, status, limit)
+        return await asyncio.to_thread(_list_orders, status, limit, wallet)
     except Exception as e:
         return exception_to_envelope(e, context="paper_order_list")
 
@@ -2253,6 +2290,12 @@ async def paper_order_cancel(
         Optional[str],
         Field(description="Why it was pulled"),
     ] = None,
+    wallet: Annotated[
+        Optional[str],
+        Field(description="Which wallet, e.g. \"swing\" or \"risky\". Omit "
+            "for the default one. Each name is a separate balance, with its "
+            "own positions, orders and history"),
+    ] = None,
 ) -> dict:
     """Take a resting simulated order off the book and release its margin.
 
@@ -2264,7 +2307,7 @@ async def paper_order_cancel(
         failure returns a structured error envelope.
     """
     try:
-        return await asyncio.to_thread(_cancel_order, order_id, note)
+        return await asyncio.to_thread(_cancel_order, order_id, note, wallet)
     except Exception as e:
         return exception_to_envelope(e, context="paper_order_cancel")
 
@@ -2307,6 +2350,12 @@ async def paper_wallet_reset(
         Field(description="Must be true to destroy an existing wallet and its "
             "positions"),
     ] = False,
+    wallet: Annotated[
+        Optional[str],
+        Field(description="Which wallet, e.g. \"swing\" or \"risky\". Omit "
+            "for the default one. Each name is a separate balance, with its "
+            "own positions, orders and history"),
+    ] = None,
 ) -> dict:
     """Create a simulated wallet, or wipe it and start again.
 
@@ -2338,7 +2387,7 @@ async def paper_wallet_reset(
     try:
         return await asyncio.to_thread(
             _paper_reset, balance, currency, fee_pct, max_leverage, note,
-            confirm_wipe,
+            confirm_wipe, wallet,
         )
     except Exception as e:
         return exception_to_envelope(e, context="paper_wallet_reset")
@@ -2382,6 +2431,12 @@ async def paper_trade_open(
         Optional[str],
         Field(description="Why this trade, so the history is reviewable later"),
     ] = None,
+    wallet: Annotated[
+        Optional[str],
+        Field(description="Which wallet, e.g. \"swing\" or \"risky\". Omit "
+            "for the default one. Each name is a separate balance, with its "
+            "own positions, orders and history"),
+    ] = None,
 ) -> dict:
     """Open a simulated position at the current real market price.
 
@@ -2412,7 +2467,7 @@ async def paper_trade_open(
     try:
         return await asyncio.to_thread(
             _paper_open, symbol, side, notional, market, leverage,
-            stop_loss, take_profit, note,
+            stop_loss, take_profit, note, wallet,
         )
     except Exception as e:
         return exception_to_envelope(e, context="paper_trade_open")
@@ -2427,6 +2482,12 @@ async def paper_trade_close(
     note: Annotated[
         Optional[str],
         Field(description="Why it was closed"),
+    ] = None,
+    wallet: Annotated[
+        Optional[str],
+        Field(description="Which wallet, e.g. \"swing\" or \"risky\". Omit "
+            "for the default one. Each name is a separate balance, with its "
+            "own positions, orders and history"),
     ] = None,
 ) -> dict:
     """Close a simulated position at the current real market price.
@@ -2443,7 +2504,7 @@ async def paper_trade_close(
         on margin. On ANY failure returns a structured error envelope.
     """
     try:
-        return await asyncio.to_thread(_paper_close, position_id, note)
+        return await asyncio.to_thread(_paper_close, position_id, note, wallet)
     except Exception as e:
         return exception_to_envelope(e, context="paper_trade_close")
 
@@ -2462,6 +2523,12 @@ async def paper_trade_modify(
         Optional[float],
         Field(description="New target price; omit to leave it unchanged"),
     ] = None,
+    wallet: Annotated[
+        Optional[str],
+        Field(description="Which wallet, e.g. \"swing\" or \"risky\". Omit "
+            "for the default one. Each name is a separate balance, with its "
+            "own positions, orders and history"),
+    ] = None,
 ) -> dict:
     """Set or move the stop and target on an open simulated position.
 
@@ -2479,7 +2546,7 @@ async def paper_trade_modify(
     """
     try:
         return await asyncio.to_thread(
-            _paper_modify, position_id, stop_loss, take_profit
+            _paper_modify, position_id, stop_loss, take_profit, wallet
         )
     except Exception as e:
         return exception_to_envelope(e, context="paper_trade_modify")
@@ -2491,6 +2558,12 @@ async def paper_wallet_status(
         int,
         Field(description="Also return this many recent closed positions, 0 for none"),
     ] = 0,
+    wallet: Annotated[
+        Optional[str],
+        Field(description="Which wallet, e.g. \"swing\" or \"risky\". Omit "
+            "for the default one. Each name is a separate balance, with its "
+            "own positions, orders and history"),
+    ] = None,
 ) -> dict:
     """The simulated wallet: cash, open positions marked live, and equity.
 
@@ -2508,7 +2581,7 @@ async def paper_wallet_status(
         envelope.
     """
     try:
-        return await asyncio.to_thread(_paper_status, include_closed)
+        return await asyncio.to_thread(_paper_status, include_closed, wallet)
     except Exception as e:
         return exception_to_envelope(e, context="paper_wallet_status")
 
@@ -2524,6 +2597,12 @@ async def paper_trade_history(
         Field(description="Add the equity after every trade, with the drawdown at "
             "each point"),
     ] = False,
+    wallet: Annotated[
+        Optional[str],
+        Field(description="Which wallet, e.g. \"swing\" or \"risky\". Omit "
+            "for the default one. Each name is a separate balance, with its "
+            "own positions, orders and history"),
+    ] = None,
 ) -> dict:
     """Closed simulated trades and the performance they add up to.
 
@@ -2546,7 +2625,7 @@ async def paper_trade_history(
         ANY failure returns a structured error envelope.
     """
     try:
-        return await asyncio.to_thread(_paper_history, limit, include_equity_curve)
+        return await asyncio.to_thread(_paper_history, limit, include_equity_curve, wallet)
     except Exception as e:
         return exception_to_envelope(e, context="paper_trade_history")
 

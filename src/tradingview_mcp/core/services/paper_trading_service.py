@@ -94,6 +94,19 @@ class SettleFailed(RuntimeError):
         self.reason = reason
 
 
+def _use_wallet(name):
+    """Point this call at a wallet, or explain why the name is refused.
+
+    Returns an error envelope on a bad name and None on success, so callers
+    read `if error: return error` exactly as they do for a missing wallet.
+    """
+    try:
+        store.select_wallet(name)
+    except store.BadWalletName as exc:
+        return make_error(ErrorCode.INVALID_PARAMETER, str(exc), wallet=name)
+    return None
+
+
 def _wallet_or_error(action: str):
     wallet = store.get_wallet()
     if not wallet:
@@ -111,7 +124,8 @@ def reset_wallet(balance: float, currency: str = "USDT",
                  fee_pct: float = _DEFAULT_FEE_PCT,
                  max_leverage: float = _DEFAULT_MAX_LEVERAGE,
                  note: Optional[str] = None,
-                 confirm_wipe: bool = False) -> dict:
+                 confirm_wipe: bool = False,
+                 wallet: Optional[str] = None) -> dict:
     """Create the wallet, or wipe it and start again.
 
     ``balance`` has no default on purpose. How much someone practises with is
@@ -124,6 +138,11 @@ def reset_wallet(balance: float, currency: str = "USDT",
     the strategy actually did. Deleting it is unrecoverable, so it cannot
     happen as a side effect of asking for a fresh wallet.
     """
+    # Before anything reads or writes: a name settled after the first
+    # database touch would already have created the wrong file.
+    error = _use_wallet(wallet)
+    if error:
+        return error
     try:
         balance = float(balance)
         fee_pct = float(fee_pct)
@@ -339,12 +358,16 @@ def open_trade(symbol: str, side: str, notional: float,
                market: str = "futures", leverage: float = 1.0,
                stop_loss: Optional[float] = None,
                take_profit: Optional[float] = None,
-               note: Optional[str] = None) -> dict:
+               note: Optional[str] = None,
+               wallet: Optional[str] = None) -> dict:
     """Open a simulated position at the current market price.
 
     ``notional`` is position value in the wallet's currency; the margin
     deducted is ``notional / leverage``.
     """
+    error = _use_wallet(wallet)
+    if error:
+        return error
     wallet, error = _wallet_or_error("opening a trade")
     if error:
         return error
@@ -518,8 +541,12 @@ def open_trade(symbol: str, side: str, notional: float,
 
 # ── Close / modify ────────────────────────────────────────────────────────────
 
-def close_trade(position_id: int, note: Optional[str] = None) -> dict:
+def close_trade(position_id: int, note: Optional[str] = None,
+                wallet: Optional[str] = None) -> dict:
     """Close an open position at the current market price."""
+    error = _use_wallet(wallet)
+    if error:
+        return error
     wallet, error = _wallet_or_error("closing a trade")
     if error:
         return error
@@ -612,8 +639,12 @@ def close_trade(position_id: int, note: Optional[str] = None) -> dict:
 
 
 def modify_trade(position_id: int, stop_loss: Optional[float] = None,
-                 take_profit: Optional[float] = None) -> dict:
+                 take_profit: Optional[float] = None,
+                 wallet: Optional[str] = None) -> dict:
     """Set or move the stop and target on an open position."""
+    error = _use_wallet(wallet)
+    if error:
+        return error
     wallet, error = _wallet_or_error("modifying a trade")
     if error:
         return error
@@ -687,8 +718,12 @@ def modify_trade(position_id: int, stop_loss: Optional[float] = None,
 
 # ── Status and history ────────────────────────────────────────────────────────
 
-def wallet_status(include_closed: int = 0) -> dict:
+def wallet_status(include_closed: int = 0,
+                  wallet: Optional[str] = None) -> dict:
     """The wallet: cash, open positions marked to live prices, and equity."""
+    error = _use_wallet(wallet)
+    if error:
+        return error
     wallet, error = _wallet_or_error("checking the wallet")
     if error:
         return error
@@ -873,8 +908,12 @@ def _equity_curve(closed: List[Dict[str, Any]], starting_balance: float) -> List
     return points
 
 
-def trade_history(limit: int = 50, include_equity_curve: bool = False) -> dict:
+def trade_history(limit: int = 50, include_equity_curve: bool = False,
+                  wallet: Optional[str] = None) -> dict:
     """Closed positions and the performance they add up to."""
+    error = _use_wallet(wallet)
+    if error:
+        return error
     wallet, error = _wallet_or_error("reading history")
     if error:
         return error
@@ -963,4 +1002,30 @@ def trade_history(limit: int = 50, include_equity_curve: bool = False) -> dict:
         "display_hint": display_hints.TRADE_HISTORY,
         "simulation": _SIMULATION_NOTICE,
         "slippage": _SLIPPAGE_NOTICE,
+    }
+
+
+def wallet_names() -> dict:
+    """Every simulated wallet that has a file, and which one is the default.
+
+    Each name is a separate SQLite file, so the balances, positions, resting
+    orders and history of one wallet are invisible to another. That is
+    separation, not privacy: anything that can reach this server can name
+    any wallet.
+    """
+    names = store.list_wallet_names()
+    return {
+        "wallets": names,
+        "default": store.DEFAULT_WALLET,
+        "count": len(names),
+        "note": (
+            "Pass `wallet` to any paper tool to work in one of these; omit it "
+            f"for {store.DEFAULT_WALLET}. A name that has no file yet is "
+            "created by resetting a wallet with it."
+        ),
+        "scope": (
+            "Separate balances, not separate accounts — every caller can "
+            "name every wallet."
+        ),
+        "simulation": _SIMULATION_NOTICE,
     }

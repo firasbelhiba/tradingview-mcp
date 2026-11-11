@@ -89,12 +89,16 @@ def place_order(symbol: str, side: str, notional: float, limit_price: float,
                 stop_loss: Optional[float] = None,
                 take_profit: Optional[float] = None,
                 good_for_hours: Optional[float] = None,
-                note: Optional[str] = None) -> dict:
+                note: Optional[str] = None,
+                wallet: Optional[str] = None) -> dict:
     """Leave an order resting at a level until a later check reaches it."""
     from tradingview_mcp.core.services.paper_trading_service import (
-        _SIMULATION_NOTICE, _wallet_or_error, settle,
+        _SIMULATION_NOTICE, _use_wallet, _wallet_or_error, settle,
     )
 
+    error = _use_wallet(wallet)
+    if error:
+        return error
     wallet, error = _wallet_or_error("placing an order")
     if error:
         return error
@@ -287,12 +291,16 @@ def place_order(symbol: str, side: str, notional: float, limit_price: float,
 
 # ── Cancelling ────────────────────────────────────────────────────────────────
 
-def cancel_order(order_id: int, note: Optional[str] = None) -> dict:
+def cancel_order(order_id: int, note: Optional[str] = None,
+                 wallet: Optional[str] = None) -> dict:
     """Take a resting order off the book and give its margin back."""
     from tradingview_mcp.core.services.paper_trading_service import (
-        _SIMULATION_NOTICE, _wallet_or_error,
+        _SIMULATION_NOTICE, _use_wallet, _wallet_or_error,
     )
 
+    error = _use_wallet(wallet)
+    if error:
+        return error
     _, error = _wallet_or_error("cancelling an order")
     if error:
         return error
@@ -441,12 +449,16 @@ def _fill(order: Dict[str, Any], hit: Dict[str, Any],
 
 # ── Listing ───────────────────────────────────────────────────────────────────
 
-def list_orders(status: Optional[str] = None, limit: int = 50) -> dict:
+def list_orders(status: Optional[str] = None, limit: int = 50,
+                wallet: Optional[str] = None) -> dict:
     """Resting orders, or the history of what became of them."""
     from tradingview_mcp.core.services.paper_trading_service import (
-        _SIMULATION_NOTICE, _wallet_or_error, settle,
+        _SIMULATION_NOTICE, _use_wallet, _wallet_or_error, settle,
     )
 
+    error = _use_wallet(wallet)
+    if error:
+        return error
     wallet, error = _wallet_or_error("listing orders")
     if error:
         return error
