@@ -449,3 +449,72 @@ def test_one_traders_profile_says_so_too(monkeypatch):
     out = svc.get_lead_trader("B1")
     assert out["measured"]["closed_trades_sampled"] == 0
     assert any("missing, not low" in w for w in out["incomplete"])
+
+
+# ── Silence is not an empty book ──────────────────────────────────────────────
+
+def test_a_failed_position_lookup_is_not_reported_as_zero(monkeypatch):
+    """Found in use: OKX returns nothing for a code that is not a futures
+    lead trader, and the profile still said "0 open positions". The note
+    was there, but anything reading the number saw a trader holding
+    nothing. The number itself has to refuse to answer.
+    """
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader(nick="Plym", code="P1")]),
+        "public-subpositions-history": _plain([_closed()]),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+        "public-current-subpositions": RuntimeError("OKX error 51000: not found"),
+        "public-preference-currency": _plain([]),
+    })
+    out = svc.get_lead_trader("P1")
+    assert out["open_position_count"] is None, "0 would read as 'holds nothing'"
+    assert out["open_positions_state"] == "unknown"
+    assert "NOT 'no open trades'" in out["open_positions_note"]
+    assert any("open positions unavailable" in w for w in out["incomplete"])
+
+
+def test_a_genuine_empty_book_says_it_was_measured(monkeypatch):
+    """The other half: a real zero must still be usable as a real zero."""
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader(nick="Flat", code="F1")]),
+        "public-subpositions-history": _plain([_closed()]),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+        "public-current-subpositions": _plain([]),
+        "public-preference-currency": _plain([]),
+    })
+    out = svc.get_lead_trader("F1")
+    assert out["open_position_count"] == 0
+    assert out["open_positions_state"] == "measured"
+    assert "holding nothing right now" in out["open_positions_note"]
+
+
+def test_positions_that_came_back_are_counted_normally(monkeypatch):
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader(nick="Live", code="L1")]),
+        "public-subpositions-history": _plain([_closed()]),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+        "public-current-subpositions": _plain([
+            {"instId": "BTC-USDT-SWAP", "posSide": "long", "lever": "3",
+             "margin": "100", "openAvgPx": "70000", "markPx": "71000"},
+        ]),
+        "public-preference-currency": _plain([]),
+    })
+    out = svc.get_lead_trader("L1")
+    assert out["open_position_count"] == 1
+    assert out["open_positions_state"] == "measured"
+    assert out["open_max_leverage"] == 3
+    assert "open_positions_note" not in out, "nothing to explain when it worked"
+
+
+def test_a_failed_preference_lookup_is_flagged_rather_than_empty(monkeypatch):
+    """The same silence, one field over: an exception was swallowed whole."""
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader(nick="Pref", code="R1")]),
+        "public-subpositions-history": _plain([_closed()]),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+        "public-current-subpositions": _plain([]),
+        "public-preference-currency": RuntimeError("timed out"),
+    })
+    out = svc.get_lead_trader("R1")
+    assert out["instrument_preferences"] is None
+    assert any("preferences unavailable" in w for w in out["incomplete"])

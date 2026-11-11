@@ -493,6 +493,13 @@ def get_lead_trader(unique_code: str, instrument_type: str = "SWAP",
         )
 
     open_positions: List[dict] = []
+    # Whether the question was answered at all, kept apart from the answer.
+    # OKX returns nothing for a code that is not a futures lead trader, and
+    # a count of 0 beside that silence reads as "holds nothing" when the
+    # truth is "nobody knows". Same distinction the alert layer keeps
+    # between "not evaluated" and "condition not met".
+    open_positions_known = True
+    open_positions_reason = None
     try:
         for p in _rows(_get(
             f"public-current-subpositions?instType={instrument_type}"
@@ -509,11 +516,14 @@ def get_lead_trader(unique_code: str, instrument_type: str = "SWAP",
                 "opened_at": p.get("openTime"),
             })
     except Exception as exc:  # noqa: BLE001
+        open_positions_known = False
+        open_positions_reason = str(exc)[:90]
         profile.setdefault("incomplete", []).append(
-            f"open positions unavailable: {str(exc)[:60]}"
+            f"open positions unavailable: {open_positions_reason[:60]}"
         )
 
     preferences: List[dict] = []
+    preferences_known = True
     try:
         preferences = [
             {"currency": r.get("ccy"), "share_pct": (
@@ -525,6 +535,7 @@ def get_lead_trader(unique_code: str, instrument_type: str = "SWAP",
         ]
     except Exception:  # noqa: BLE001
         preferences = []
+        preferences_known = False
 
     if (profile.get("measured") or {}).get("closed_trades_sampled") == 0:
         profile.setdefault("incomplete", []).append(
@@ -533,9 +544,29 @@ def get_lead_trader(unique_code: str, instrument_type: str = "SWAP",
         )
     open_levs = [p["leverage"] for p in open_positions if p.get("leverage")]
     profile["open_positions"] = open_positions or None
-    profile["open_position_count"] = len(open_positions)
+    # None, not 0, when nobody could tell. A reader that only looks at the
+    # number must not be able to mistake silence for an empty book.
+    profile["open_position_count"] = len(open_positions) if open_positions_known else None
+    profile["open_positions_state"] = (
+        "measured" if open_positions_known else "unknown"
+    )
+    if not open_positions_known:
+        profile["open_positions_note"] = (
+            f"OKX returned no position data ({open_positions_reason}). This "
+            "is NOT 'no open trades' - it is 'nobody could tell'. Check the "
+            "trader's page on OKX, or pick one whose data comes back whole."
+        )
+    elif not open_positions:
+        profile["open_positions_note"] = (
+            "measured: OKX answered and this trader is holding nothing right now"
+        )
     profile["open_max_leverage"] = round(max(open_levs), 0) if open_levs else None
     profile["instrument_preferences"] = preferences or None
+    if not preferences_known:
+        profile.setdefault("incomplete", []).append(
+            "instrument preferences unavailable, so the mix below is missing "
+            "rather than empty"
+        )
     profile["source"] = "OKX copy trading, public endpoints (no key)"
     profile["read_only_note"] = (
         "This reports published statistics. It does not place, follow or size "
