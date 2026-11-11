@@ -2166,16 +2166,19 @@ async def paper_trade_history(limit: int = 50) -> dict:
 
 @mcp.tool(structured_output=False, annotations=ToolAnnotations(title="Paper Wallet Widget", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
 async def paper_wallet_widget(include_closed: int = 0) -> list:
-    """The paper wallet as a rendered panel, for hosts that support MCP Apps.
+    """The paper wallet as a ui:// panel — ONLY useful on an MCP Apps host.
 
-    Returns the same data as paper_wallet_status plus a ui:// HTML resource.
-    A host that implements MCP Apps / MCP-UI draws the panel inline — equity,
-    open positions with their stops and liquidation prices, and buttons. A
-    host that does not simply shows the text summary, which is why this
-    returns both and hides nothing behind a button.
+    MEASURED, not assumed: the Claude desktop app does NOT render this from a
+    local stdio server. Tested 2026-11-11 — the tool returned its resource and
+    the app printed the data as text instead. Remote connectors are a
+    different matter (the upstream project's hosted build draws charts this
+    way), so this stays for the day the server is hosted.
 
-    Use paper_wallet_status when you want the full JSON to reason over; use
-    this when the person should SEE the wallet.
+    Until then prefer paper_wallet_status: this one carries ~4KB of HTML that
+    nothing will draw, which is pure cost on every call.
+
+    A host that ignores the resource still gets the full text summary, and no
+    number lives only in a button, so nothing is hidden either way.
 
     Args:
         include_closed: Also include this many recent closed positions
