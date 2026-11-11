@@ -113,3 +113,38 @@ def test_hint_is_a_trigger_not_a_restatement(monkeypatch):
     total = len(json.dumps(status, default=str))
     assert hint_size < 320, f"hint is {hint_size} bytes; keep it a pointer"
     assert hint_size < total * 0.25, "the hint should not dominate the result"
+
+
+# ── Discovery ─────────────────────────────────────────────────────────────────
+
+def test_trade_plan_points_at_the_paper_wallet(monkeypatch):
+    """Discovery at the moment of relevance.
+
+    Someone holding an entry, a stop and a target is the person who should
+    learn the simulated wallet exists. A README line does not reach them
+    here; the tool result does.
+    """
+    from tradingview_mcp.core.services import crypto_analysis_service as cas
+
+    class _A:
+        indicators = {
+            "close": 100.0, "high": 102.0, "low": 98.0, "ATR": 3.0,
+            "EMA20": 99.0, "EMA50": 95.0, "EMA200": 90.0, "RSI": 55.0,
+            "Pivot.M.Classic.S1": 96.0, "Pivot.M.Classic.R1": 108.0,
+        }
+
+    monkeypatch.setattr(
+        cas, "resilient_get_multiple_analysis",
+        lambda screener, interval, symbols: {symbols[0]: _A()},
+    )
+    out = cas.generate_crypto_trade_plan("BTCUSDT", "KUCOIN", "4h")
+    assert "paper_trade_open" in out["next_step"]
+    assert "no real order" in out["next_step"]
+    assert len(out["next_step"]) < 250, "a pointer, not a pitch"
+
+
+def test_server_instructions_name_the_wallet_as_a_capability():
+    """So "what can you do?" gets an accurate answer without tool search."""
+    instructions = mcp.instructions or ""
+    assert "paper-trading wallet" in instructions
+    assert "alerts" in instructions

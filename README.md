@@ -60,6 +60,137 @@ Backtest an RSI strategy on BTC on the daily timeframe
 > [!NOTE]
 > **Does it need — or risk — your TradingView account? No.** This server does **not** log into, scrape, or automate a TradingView session, and it requires no TradingView account or API key. Market data is fetched server-side from public endpoints, so there is no account of yours in the loop and no browser/UI automation. *(This is different from MCP servers that drive the TradingView Desktop app via Chrome DevTools.)* You are responsible for ensuring your own use complies with the terms of any data source you point it at.
 
+## 🧪 This fork adds 32 tools — including a paper-trading wallet
+
+> This is a fork of [atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)
+> (MIT, © 2025 Ahmet Taner Atila). Everything below is added on top of the
+> upstream tools documented further down. **71 tools, 921 tests.**
+
+**New here? Start by asking your AI these three things:**
+
+```
+"Reset my paper wallet to 10,000 and show me the market breadth on KuCoin"
+"Where is the crowd most exposed right now?"
+"Find lead traders with 365+ day track records sorted by lowest leverage"
+```
+
+### 💰 Paper trading — practise against real prices, risk nothing
+
+A simulated wallet with no exchange key anywhere near it. Positions are rows
+in a local SQLite file, priced against live markets, so a strategy can be
+tested before it costs anything.
+
+| Tool | What it does |
+|---|---|
+| `paper_wallet_reset` | Create or wipe the wallet — you pick balance, fees, max leverage |
+| `paper_trade_open` | Long or short, spot or futures, with stop and target |
+| `paper_trade_close` | Close at the live price |
+| `paper_trade_modify` | Move the stop or target (trailing) |
+| `paper_wallet_status` | Cash, positions marked live, equity, unrealised PnL |
+| `paper_trade_history` | Win rate, profit factor, expectancy, drawdown, costs |
+| `paper_wallet_widget` | The wallet as a `ui://` panel (MCP Apps hosts only) |
+
+It is deliberately hard where the market is hard:
+
+- **Stops settle against bar highs and lows since you opened**, not against
+  the price when you happen to look — so a stop-out that price recovered
+  from still counts. That is the lesson most practice accounts delete.
+- **One bar holding both stop and target fills the stop**, because the bar
+  does not record which came first.
+- **Costs are charged**: taker fees both sides, and futures pay *real*
+  funding read from Binance's history. `paper_trade_history` reports what
+  fees and funding consumed, so a strategy that only works before costs is
+  visible as such.
+- **Liquidation** is checked against Binance's own mark price.
+- **Slippage is not modelled** — fills land exactly on the level, so treat
+  simulated exit quality as a best case. Every result says so.
+
+### 📊 Positioning — what price alone cannot show
+
+| Tool | What it does |
+|---|---|
+| `positioning` | Funding, open interest, crowd vs top traders, squeeze risk for one perp |
+| `squeeze_scan` | The whole perp board ranked by liquidation-cascade risk |
+| `funding_screener` | 945 perps ranked by cost of carry, in three requests |
+
+Funding intervals are read per symbol — 820 of ~945 perps settle every 4
+hours, not 8, so a uniform annualisation understates most of the market.
+
+### 🧭 Market structure
+
+| Tool | What it does |
+|---|---|
+| `market_breadth` | How much of an exchange is participating — one request |
+| `relative_strength` | Performance ranked against a benchmark over weeks |
+| `trend_strength_scan` | ADX with +DI/-DI — what is *trending*, not what moved |
+| `volatility_rank` | Realised volatility, for sizing |
+
+### 📈 Crypto swing tools
+
+| Tool | What it does |
+|---|---|
+| `crypto_trade_plan` | Entry, stop, targets, R:R, ATR position sizing |
+| `crypto_fibonacci_retracement` | Retracement and extension levels |
+| `crypto_watchlist` | N symbols scored in ONE scanner request |
+| `rsi_divergence` | Bullish/bearish divergence between confirmed pivots |
+| `supertrend_scan` | True Supertrend state and recent flips |
+| `donchian_breakout_scan` | Channel breakouts measured on the prior window |
+| `correlation` | Correlation, beta and r² vs BTC — is it its own trade? |
+| `seasonality` | Return by weekday and hour, with a t-stat so noise shows as noise |
+
+### 🔔 Alerts and sentiment
+
+| Tool | What it does |
+|---|---|
+| `alert_create` / `alert_check` / `alert_list` / `alert_manage` / `alert_metrics` | Standing conditions on price, RSI, funding, breadth — evaluated on demand |
+| `fear_greed` | The crypto Fear & Greed index — **no API key needed** |
+| `narrative_rotation` | Which sectors are moving, with a market-cap floor on by default |
+
+Alerts persist in SQLite but nothing is pushed: pair `alert_check` with a
+scheduler and relay what fires.
+
+### 👥 Copy trading — with the risk the leaderboard hides
+
+| Tool | What it does |
+|---|---|
+| `lead_traders` | OKX lead traders, ranked by track record with leverage measured |
+| `lead_trader_profile` | One trader in full, including live open positions |
+| `lead_trader_trades` | Their complete closed-trade log and real drawdown |
+
+The leaderboard publishes return and win rate but no leverage and no
+drawdown, so these compute them. On the first live run the top-ranked trader
+advertised +629% and turned out to run 22.8x average leverage with one trade
+down 262% of its margin.
+
+### Two upstream bugs fixed
+
+- **`calc_supertrend` never flipped.** It compared each close against its
+  *own* bar's bands, so direction initialised bearish and stayed there for
+  every bar of every series — which silently disabled the `supertrend`
+  backtest strategy, since it enters on a flip that could not happen.
+  Submitted upstream as [PR #137](https://github.com/atilaahmettaner/tradingview-mcp/pull/137).
+- **Crypto candles** now come from Binance klines (Yahoo stays as a fallback
+  for the symbols Binance does not list). Measured against TradingView's 4h
+  closes, Binance lands within 0.02–0.05% where the Yahoo path was 0.10–0.11%
+  out, and native 4h bars removed a resampling bug.
+
+### Install this fork
+
+```bash
+uv tool install git+https://github.com/firasbelhiba/tradingview-mcp --python 3.13
+```
+
+Pin `--python 3.13` — without it the environment can be built on 3.12 and the
+launcher may silently serve a different copy. No API key is needed for
+anything in this section; only the upstream `market_sentiment` and
+`financial_news` want a free Marketaux token, and `fear_greed` covers that
+ground without one.
+
+**Not financial advice.** Every tool is read-only against the market: nothing
+here places an order, and the paper wallet is a simulation.
+
+---
+
 <details>
 <summary><b>How this compares to desktop-automation TradingView MCPs</b> (the ones that remote-control TradingView Desktop)</summary>
 <br>

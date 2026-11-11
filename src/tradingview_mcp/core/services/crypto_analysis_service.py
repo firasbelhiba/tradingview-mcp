@@ -536,6 +536,15 @@ def generate_crypto_trade_plan(
             "recommendation": ind.get("Recommend.All"),
         },
         "trend_summary": ", ".join(trend_bits) if trend_bits else None,
+        # Discovery where it is actually useful. Someone holding an entry, a
+        # stop and a target is exactly the person who should know the wallet
+        # exists — a line in the README reaches nobody at this moment. Kept to
+        # one sentence, because a pointer repeated on every call is a tax.
+        "next_step": (
+            "To test this setup without risking anything, paper_trade_open "
+            "takes these levels and paper_wallet_status tracks it; the wallet "
+            "is simulated and places no real order."
+        ),
         "disclaimer": "For educational/informational purposes only. Not financial advice.",
     }
 
