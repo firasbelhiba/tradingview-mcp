@@ -761,7 +761,50 @@ def _closed_rows(rows: List[Dict[str, Any]]) -> List[dict]:
     return out
 
 
-def trade_history(limit: int = 50) -> dict:
+def _equity_curve(closed: List[Dict[str, Any]], starting_balance: float) -> List[dict]:
+    """Equity after each closed trade, in close order, with the drawdown.
+
+    Statistics describe a record; a curve shows its shape, and they are not
+    the same thing. Two strategies can share a win rate and an expectancy
+    while one grinds upward and the other makes it all back in a single
+    trade after sitting underwater for weeks — only the curve says which.
+
+    ``gross_equity`` runs the same trades with fees and funding added back,
+    so the gap between the two lines is literally what trading cost. A
+    strategy that is profitable gross and flat net is a common and expensive
+    thing to discover late.
+    """
+    ordered = sorted(
+        (p for p in closed if p.get("closed_ms")), key=lambda p: p["closed_ms"]
+    )
+    points: List[dict] = []
+    cumulative = gross_cumulative = 0.0
+    peak = starting_balance
+    for p in ordered:
+        pnl = p.get("realised_pnl") or 0.0
+        costs = (p.get("entry_fee") or 0.0) + (p.get("exit_fee") or 0.0) + (
+            p.get("funding_paid") or 0.0
+        )
+        cumulative += pnl
+        gross_cumulative += pnl + costs
+        equity = starting_balance + cumulative
+        peak = max(peak, equity)
+        drawdown = equity - peak
+        points.append({
+            "closed_at": p.get("closed_at"),
+            "symbol": p.get("symbol"),
+            "trade_pnl": round(pnl, 4),
+            "equity": round(equity, 2),
+            "gross_equity": round(starting_balance + gross_cumulative, 2),
+            "peak": round(peak, 2),
+            "drawdown": round(drawdown, 2),
+            "drawdown_pct": round(drawdown / peak * 100, 2) if peak else None,
+            "won": pnl > 0,
+        })
+    return points
+
+
+def trade_history(limit: int = 50, include_equity_curve: bool = False) -> dict:
     """Closed positions and the performance they add up to."""
     wallet, error = _wallet_or_error("reading history")
     if error:
@@ -834,6 +877,15 @@ def trade_history(limit: int = 50) -> dict:
             "closed_by": reasons,
         },
         "unsettled_positions": settle_failures or None,
+        "equity_curve": (
+            _equity_curve(closed, wallet["starting_balance"])
+            if include_equity_curve else None
+        ),
+        "curve_note": (
+            "equity is after costs; gross_equity adds fees and funding back, "
+            "so the gap between the two lines is what trading cost"
+            if include_equity_curve else None
+        ),
         "display_hint": _DISPLAY_HINT,
         "cost_note": (
             "Fees and funding are already inside realised_pnl; "

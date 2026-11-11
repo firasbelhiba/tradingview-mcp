@@ -2176,22 +2176,29 @@ async def paper_wallet_status(include_closed: int = 0) -> dict:
 
 
 @mcp.tool(annotations=ToolAnnotations(title="Paper Trade History", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
-async def paper_trade_history(limit: int = 50) -> dict:
+async def paper_trade_history(limit: int = 50, include_equity_curve: bool = False) -> dict:
     """Closed simulated trades and the performance they add up to.
 
     Win rate, profit factor, expectancy, realised drawdown sequenced by close
     time, and what fees and funding consumed - so a strategy that only works
     before costs is visible as such.
 
+    Set include_equity_curve when the person wants to SEE how the account
+    developed: statistics describe a record, a curve shows its shape, and two
+    strategies with the same win rate can look nothing alike. The curve also
+    carries gross_equity — the same trades with fees and funding added back —
+    so the gap between the lines is what trading cost.
+
     Args:
         limit: Trades to return, 1-500
+        include_equity_curve: Add equity after each trade, with drawdown
 
     Returns:
-        dict with trades and a statistics block. On ANY failure returns a
-        structured error envelope.
+        dict with trades, a statistics block and optionally equity_curve. On
+        ANY failure returns a structured error envelope.
     """
     try:
-        return await asyncio.to_thread(_paper_history, limit)
+        return await asyncio.to_thread(_paper_history, limit, include_equity_curve)
     except Exception as e:
         return exception_to_envelope(e, context="paper_trade_history")
 

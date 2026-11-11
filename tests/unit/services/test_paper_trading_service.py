@@ -585,3 +585,58 @@ def test_every_result_declares_it_is_simulated(monkeypatch):
     status = svc.wallet_status()
     assert "SIMULATED" in status["simulation"]
     assert "SIMULATED" in svc.trade_history()["simulation"]
+
+
+# ── Equity curve ──────────────────────────────────────────────────────────────
+
+def _closed_row(pnl, closed_ms, fees=0.0, funding=0.0, symbol="BTCUSDT"):
+    return {"realised_pnl": pnl, "closed_ms": closed_ms, "closed_at": f"t{closed_ms}",
+            "symbol": symbol, "entry_fee": fees / 2, "exit_fee": fees / 2,
+            "funding_paid": funding}
+
+
+def test_equity_curve_tracks_drawdown_from_the_peak():
+    closed = [_closed_row(500.0, 1), _closed_row(-200.0, 2), _closed_row(100.0, 3)]
+    curve = svc._equity_curve(closed, 10000.0)
+    assert [p["equity"] for p in curve] == [10500.0, 10300.0, 10400.0]
+    assert [p["peak"] for p in curve] == [10500.0, 10500.0, 10500.0]
+    assert [p["drawdown"] for p in curve] == [0.0, -200.0, -100.0]
+    assert curve[1]["drawdown_pct"] == pytest.approx(-1.9, abs=0.05)
+
+
+def test_curve_is_ordered_by_close_time_not_storage_order():
+    closed = [_closed_row(100.0, 300), _closed_row(-50.0, 100)]
+    curve = svc._equity_curve(closed, 1000.0)
+    assert [p["equity"] for p in curve] == [950.0, 1050.0]
+
+
+def test_gross_equity_shows_what_trading_cost():
+    """The gap between the lines is the whole point.
+
+    A strategy profitable gross and flat net is a common and expensive thing
+    to discover late.
+    """
+    closed = [_closed_row(10.0, 1, fees=4.0, funding=1.0)]
+    curve = svc._equity_curve(closed, 1000.0)
+    assert curve[0]["equity"] == 1010.0
+    assert curve[0]["gross_equity"] == 1015.0   # fees 4 + funding 1 added back
+
+
+def test_curve_marks_winners():
+    curve = svc._equity_curve([_closed_row(5.0, 1), _closed_row(-5.0, 2)], 100.0)
+    assert [p["won"] for p in curve] == [True, False]
+
+
+def test_curve_is_opt_in(monkeypatch):
+    svc.reset_wallet(1000.0, "USDT", 0.0, 20.0)
+    _patch_price(monkeypatch, 100.0)
+    _patch_bars(monkeypatch, [])
+    _patch_funding(monkeypatch, 0.0, 0)
+    pid = svc.open_trade("BTCUSDT", "long", 100.0, "futures", 1.0)["opened"]["position_id"]
+    svc.close_trade(pid)
+    assert svc.trade_history()["equity_curve"] is None
+    assert svc.trade_history(include_equity_curve=True)["equity_curve"]
+
+
+def test_curve_of_no_trades_is_empty():
+    assert svc._equity_curve([], 1000.0) == []
