@@ -12,3 +12,8 @@ services:
       # Optional: Add any future API keys or environment variables here
       - PORT=8000
       - HOST=0.0.0.0
+      # The hostname clients will reach this on. Binding to 0.0.0.0
+      # without it leaves DNS-rebinding protection off (the server
+      # warns on startup), because refusing every request instead --
+      # which is what it used to do -- is worse. Comma separated.
+      # - TRADINGVIEW_MCP_ALLOWED_HOSTS=mcp.example.com

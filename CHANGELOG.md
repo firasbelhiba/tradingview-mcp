@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **`--host 0.0.0.0` refused every request it received.** The MCP SDK enables
+  DNS-rebinding protection whenever `FastMCP` is constructed with a localhost
+  host, and `server.py` constructs it at import time — before `--host` is
+  parsed — so `allowed_hosts` was pinned to `127.0.0.1/localhost/[::1]` for
+  every launch and any request carrying a real `Host` header was answered
+  `Invalid Host header`. That is the exact deployment the flag exists for.
+  New `--allowed-host` (repeatable) and `TRADINGVIEW_MCP_ALLOWED_HOSTS`
+  (comma separated) name the hostnames to accept; a non-localhost bind with
+  neither runs with the protection off and warns on startup, since refusing
+  everything silently is worse. A localhost bind is unchanged.
+
 ### Changed
 - **A missing paper position or alert now returns `RECORD_NOT_FOUND`, not
   `SYMBOL_NOT_FOUND`**: both are rows in this server's own database, and the

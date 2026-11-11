@@ -64,7 +64,7 @@ Backtest an RSI strategy on BTC on the daily timeframe
 
 > This is a fork of [atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)
 > (MIT, © 2025 Ahmet Taner Atila). Everything below is added on top of the
-> upstream tools documented further down. **74 tools, 1,000 tests.**
+> upstream tools documented further down. **74 tools, 1,019 tests.**
 
 **New here? Start by asking your AI these three things:**
 
@@ -186,6 +186,28 @@ down 262% of its margin.
   for the symbols Binance does not list). Measured against TradingView's 4h
   closes, Binance lands within 0.02–0.05% where the Yahoo path was 0.10–0.11%
   out, and native 4h bars removed a resampling bug.
+
+### Hosting it for other people
+
+`streamable-http` serves it over HTTP, and the Dockerfile already
+defaults to that transport. Two things the transport needs that are
+easy to miss:
+
+```bash
+tradingview-mcp streamable-http --host 0.0.0.0 --port 8000 \n    --allowed-host mcp.example.com
+```
+
+- **`--allowed-host`** (repeatable, or `TRADINGVIEW_MCP_ALLOWED_HOSTS`
+  comma separated) is the hostname clients will use. Without it, a
+  non-localhost bind runs with DNS-rebinding protection off and says so
+  on startup. Before this fork it did something worse and quieter: the
+  MCP SDK pins `allowed_hosts` to localhost whenever FastMCP is built
+  with a localhost host, which happens at import time before `--host`
+  is read, so every remote request was answered `Invalid Host header`.
+- **There is no authentication of any kind in this server.** Several
+  tools write — `paper_wallet_reset` wipes the wallet, `alert_manage`
+  deletes alerts. Put a reverse proxy that checks a token in front of
+  it, and do not publish the port directly.
 
 ### Install this fork
 

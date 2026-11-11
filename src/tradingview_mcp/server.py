@@ -2700,6 +2700,96 @@ def _offload_sync_tools() -> int:
 _OFFLOADED_TOOL_COUNT = _offload_sync_tools()
 
 
+# ── Transport security (streamable-http) ──────────────────────────────────────
+
+_LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def _host_patterns(name: str) -> list:
+    """Both forms of a host, because one pattern does not cover the other.
+
+    The SDK matches a Host header exactly, or against ``base:*`` by testing
+    ``host.startswith(base + ":")`` — so ``example.com:*`` never matches a
+    bare ``example.com``. A client reaching the server on 443 sends no port
+    and would be refused by the wildcard alone.
+    """
+    name = name.strip().rstrip("/")
+    if not name:
+        return []
+    return [name, f"{name}:*"]
+
+
+def resolve_transport_security(bind_host: str, allowed_hosts: list):
+    """Decide the DNS-rebinding policy for an HTTP bind. Returns (settings, warning).
+
+    Three cases, and the middle one is the bug this exists to fix:
+
+      * Hosts were named — protect, and accept exactly those (plus localhost,
+        so a health probe from inside the container still works). Origins are
+        populated too: with protection on and ``allowed_origins`` empty, the
+        SDK refuses any request that carries an Origin header at all, which
+        would break a browser-based client.
+      * Nothing named and the bind is public — turn protection OFF and say so
+        loudly. Rebinding attacks aim a browser at a server on localhost; a
+        server deliberately bound to 0.0.0.0 for remote clients is a
+        different threat model, and silently refusing every request is worse
+        than not protecting against that one. Put a token in front of it.
+      * Nothing named and the bind is local — keep the SDK's own localhost
+        policy. Stated explicitly rather than left to None, because None
+        means "no settings", which the middleware reads as protection off.
+    """
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    local = []
+    for name in _LOCAL_HOSTS:
+        local.extend(_host_patterns(f"[{name}]" if name == "::1" else name))
+
+    names = [n for n in (h.strip() for h in allowed_hosts) if n]
+    if names:
+        hosts = list(local)
+        origins = []
+        for name in names:
+            hosts.extend(_host_patterns(name))
+            for scheme in ("https", "http"):
+                origins.extend(_host_patterns(f"{scheme}://{name}"))
+        for name in _LOCAL_HOSTS:
+            bare = f"[{name}]" if name == "::1" else name
+            origins.extend(_host_patterns(f"http://{bare}"))
+        return (
+            TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=hosts,
+                allowed_origins=origins,
+            ),
+            None,
+        )
+
+    if bind_host not in _LOCAL_HOSTS:
+        return (
+            TransportSecuritySettings(enable_dns_rebinding_protection=False),
+            f"DNS-rebinding protection is OFF: bound to {bind_host} with no "
+            "--allowed-host given, and refusing every request instead would "
+            "be worse. Pass --allowed-host <public-hostname> (repeatable) or "
+            "set TRADINGVIEW_MCP_ALLOWED_HOSTS to turn it back on. This "
+            "server has no authentication of its own either — put a reverse "
+            "proxy that checks a token in front of it.",
+        )
+
+    return (
+        TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=list(local),
+            allowed_origins=[
+                p for name in _LOCAL_HOSTS
+                for p in _host_patterns(
+                    f"http://{'[::1]' if name == '::1' else name}"
+                )
+            ],
+        ),
+        None,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="TradingView Screener MCP server")
     parser.add_argument(
@@ -2711,6 +2801,18 @@ def main() -> None:
     )
     parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
+    parser.add_argument(
+        "--allowed-host",
+        action="append",
+        default=None,
+        metavar="HOSTNAME",
+        help=(
+            "Host header to accept over streamable-http, e.g. mcp.example.com. "
+            "Repeatable. Defaults to TRADINGVIEW_MCP_ALLOWED_HOSTS (comma "
+            "separated). Required to keep DNS-rebinding protection on when "
+            "binding to anything other than localhost."
+        ),
+    )
     args = parser.parse_args()
 
     if os.environ.get("DEBUG_MCP"):
@@ -2720,11 +2822,24 @@ def main() -> None:
     if args.transport == "stdio":
         mcp.run()
     else:
+        import sys
+
         try:
             mcp.settings.host = args.host
             mcp.settings.port = args.port
         except Exception:
             pass
+        # Not inside the try above: a silent failure here is what made every
+        # remote request fail with "Invalid Host header".
+        allowed = args.allowed_host or [
+            h for h in os.environ.get(
+                "TRADINGVIEW_MCP_ALLOWED_HOSTS", ""
+            ).split(",") if h.strip()
+        ]
+        security, warning = resolve_transport_security(args.host, allowed)
+        mcp.settings.transport_security = security
+        if warning:
+            print(f"[tradingview_mcp] {warning}", file=sys.stderr, flush=True)
         mcp.run(transport="streamable-http")
 
 
