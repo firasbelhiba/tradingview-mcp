@@ -37,6 +37,10 @@ def _coin(rank, symbol, mcap, **changes):
 
 def _patch(monkeypatch, coins):
     monkeypatch.setattr(svc, "_fetch", lambda limit: coins[:limit])
+    # The stablecoin list is fetched from CoinGecko at runtime; offline it
+    # has to be the literal fallback, or these tests would reach the network
+    # and change behaviour with the market.
+    monkeypatch.setattr(svc, "_stablecoin_symbols", lambda: set(svc._STABLES))
 
 
 # ── Shaping ───────────────────────────────────────────────────────────────────
@@ -175,3 +179,56 @@ def test_the_hint_warns_that_bitcoin_swamps_a_linear_radius(monkeypatch):
     _patch(monkeypatch, [_coin(1, "BTC", 1e12)])
     hint = svc.crypto_bubbles(limit=1)["display_hint"]
     assert "compress the radius" in hint
+
+
+def test_a_crowd_of_stablecoins_still_leaves_a_full_board(monkeypatch):
+    """Measured on live data: a top-60 held twelve stablecoins, because they
+    cluster at the large-cap end. A flat +10 buffer returned 48 of 50.
+    """
+    coins = []
+    rank = 1
+    for i in range(80):
+        if i % 4 == 0 and i < 50:
+            coins.append(_coin(rank, f"USD{i}", 1e11 - i))
+            svc._STABLES.add(f"usd{i}")
+        else:
+            coins.append(_coin(rank, f"C{i}", 1e11 - i))
+        rank += 1
+    _patch(monkeypatch, coins)
+    try:
+        out = svc.crypto_bubbles(limit=50)
+        assert out["count"] == 50, "asked for 50, must get 50"
+    finally:
+        for i in range(80):
+            svc._STABLES.discard(f"usd{i}")
+
+
+def test_the_stablecoin_list_falls_back_when_the_lookup_fails(monkeypatch):
+    """A failed category lookup must degrade to the literal set, not to
+    letting every stablecoin through."""
+    def boom(*a, **k):
+        raise RuntimeError("category endpoint down")
+
+    monkeypatch.setattr(svc.urllib.request, "urlopen", boom)
+    svc._cache.clear()
+    assert "usdt" in svc._stablecoin_symbols()
+
+
+def test_the_fetched_list_is_unioned_with_the_literal_one(monkeypatch):
+    """A category that omits something the literal set knows about must not
+    silently un-know it."""
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return json.dumps([{"symbol": "newstable"}]).encode()
+
+    monkeypatch.setattr(svc.urllib.request, "urlopen", lambda *a, **k: _Resp())
+    svc._cache.clear()
+    symbols = svc._stablecoin_symbols()
+    assert "newstable" in symbols
+    assert "usdt" in symbols

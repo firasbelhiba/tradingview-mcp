@@ -41,6 +41,7 @@ _URL = "https://api.coingecko.com/api/v3/coins/markets"
 _UA = "tradingview-mcp/0.9"
 _TIMEOUT = 15
 _TTL = 60.0
+_STABLE_TTL = 3600.0
 _MAX_LIMIT = 100
 
 _cache: Dict[str, tuple] = {}
@@ -55,14 +56,54 @@ WINDOWS = {
     "1y": "price_change_percentage_1y_in_currency",
 }
 
-# Judged by what the asset is for, not by a price check: a depegged
-# stablecoin is still a stablecoin, and would otherwise appear only on the
-# day its bubble is most misleading.
+# The fallback list, used when CoinGecko's own stablecoin category cannot be
+# reached. Judged by what the asset is for, never by a price check: a
+# depegged stablecoin is still a stablecoin, and a price test would surface
+# it only on the day its bubble is most misleading.
 _STABLES = {
     "usdt", "usdc", "dai", "fdusd", "usde", "pyusd", "tusd", "usdd", "usds",
     "busd", "gusd", "lusd", "frax", "usdp", "eurc", "eurs", "usd1", "rlusd",
-    "susds", "susde", "buidl", "usdy", "usdf", "usdx",
+    "susds", "susde", "buidl", "usdy", "usdf", "usdx", "usdg",
+    "usyc", "usdtb", "syrupusdc", "xaut",
 }
+
+
+def _stablecoin_symbols() -> set:
+    """The stablecoin list, from CoinGecko's own category rather than by hand.
+
+    The hand-written set below was already leaking: a live top-60 let USDG
+    and USYC through, because new ones arrive faster than anyone edits a
+    constant. This asks the source that ranks them, cached for an hour, and
+    falls back to the literal set when the call fails — so a failed lookup
+    degrades to the old behaviour instead of filling the board with coins
+    built not to move.
+    """
+    key = "stablecoins"
+    with _cache_lock:
+        hit = _cache.get(key)
+    if hit and (time.time() - hit[0]) <= _STABLE_TTL:
+        return hit[1]
+    url = (
+        f"{_URL}?vs_currency=usd&category=stablecoins&order=market_cap_desc"
+        "&per_page=250&page=1&sparkline=false"
+    )
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": _UA, "Accept": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            rows = json.loads(resp.read().decode("utf-8"))
+        symbols = {
+            str(r.get("symbol", "")).lower() for r in rows if r.get("symbol")
+        }
+        if not symbols:
+            raise RuntimeError("empty stablecoin category")
+    except Exception:  # noqa: BLE001
+        return set(_STABLES)
+    symbols |= _STABLES
+    with _cache_lock:
+        _cache[key] = (time.time(), symbols)
+    return symbols
 
 
 def _fetch(limit: int) -> List[dict]:
@@ -134,8 +175,14 @@ def crypto_bubbles(limit: int = 30, window: str = "24h",
         )
 
     # Over-fetch so dropping stablecoins still leaves `limit` coins, rather
-    # than quietly returning 28 when 30 were asked for.
-    want = min(_MAX_LIMIT, limit + 10) if not include_stablecoins else limit
+    # than quietly returning 48 when 50 were asked for. A flat +10 was not
+    # enough: a live top-60 held twelve stablecoins, because they cluster at
+    # the large-cap end where the buffer is thinnest. Half again plus ten
+    # covers that, and CoinGecko charges the same for one page either way.
+    want = (
+        min(_MAX_LIMIT, int(limit * 1.5) + 10)
+        if not include_stablecoins else limit
+    )
     try:
         raw = _fetch(want)
     except urllib.error.HTTPError as exc:
@@ -156,9 +203,10 @@ def crypto_bubbles(limit: int = 30, window: str = "24h",
     rows = [_row(r) for r in raw]
     removed = []
     if not include_stablecoins:
+        stables = _stablecoin_symbols()
         kept = []
         for row in rows:
-            if (row["symbol"] or "").lower() in _STABLES:
+            if (row["symbol"] or "").lower() in stables:
                 removed.append(row["symbol"])
             else:
                 kept.append(row)
