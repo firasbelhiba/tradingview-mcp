@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **`paper_copy_trader`** mirrors a lead trader's open positions into a
+  simulated wallet. It previews by default and writes nothing until
+  `confirm=true`. It is not copy trading and says so: you enter at today's
+  price, not theirs, so every row reports `already_moved_pct` and the result
+  leads with the position furthest along. Copied positions carry no stop,
+  because OKX publishes what a trader holds and never where they would get
+  out. Sizing is the wallet's, not the trader's, and leverage above the
+  wallet's cap is capped with a note saying that makes it a different trade
+  rather than a smaller one. A trader whose positions could not be read is
+  refused outright rather than copied as an empty book.
 - **Named wallets** (`paper_wallet_list`, and a `wallet` argument on every
   paper tool). The wallet table is `CHECK (id = 1)` and positions carry no
   wallet column, so a second wallet cannot share the database; each name gets

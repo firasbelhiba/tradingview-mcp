@@ -98,3 +98,9 @@ WALLETS_LISTED = hint(
     "draw one row per wallet with its realised return and what is open; "
     "say that unrealised PnL is not in these figures."
 )
+
+
+COPY_PLAN = hint(
+    "show already_moved_pct per row and lead with the furthest along; a "
+    "position most of the way to its target is the one to question."
+)

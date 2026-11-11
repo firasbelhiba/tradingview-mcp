@@ -31,6 +31,7 @@ _STATEFUL_TOOLS = {
     "paper_trade_modify": "updates a simulated position's stop/target",
     "paper_order_place": "writes a resting order row and holds its margin",
     "paper_order_cancel": "takes a resting order off the book",
+    "paper_copy_trader": "opens simulated positions mirroring a lead trader",
 }
 
 

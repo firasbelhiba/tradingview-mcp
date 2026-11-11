@@ -60,11 +60,11 @@ Backtest an RSI strategy on BTC on the daily timeframe
 > [!NOTE]
 > **Does it need — or risk — your TradingView account? No.** This server does **not** log into, scrape, or automate a TradingView session, and it requires no TradingView account or API key. Market data is fetched server-side from public endpoints, so there is no account of yours in the loop and no browser/UI automation. *(This is different from MCP servers that drive the TradingView Desktop app via Chrome DevTools.)* You are responsible for ensuring your own use complies with the terms of any data source you point it at.
 
-## 🧪 This fork adds 39 tools — including a paper-trading wallet
+## 🧪 This fork adds 40 tools — including a paper-trading wallet
 
 > This is a fork of [atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)
 > (MIT, © 2025 Ahmet Taner Atila). Everything below is added on top of the
-> upstream tools documented further down. **78 tools, 1,086 tests.**
+> upstream tools documented further down. **79 tools, 1,113 tests.**
 
 **New here? Start by asking your AI these three things:**
 
@@ -182,6 +182,7 @@ scheduler and relay what fires.
 | `lead_traders` | OKX lead traders, ranked by track record with leverage measured |
 | `lead_trader_profile` | One trader in full, including live open positions |
 | `lead_trader_trades` | Their complete closed-trade log and real drawdown |
+| `paper_copy_trader` | Mirror what a trader holds into a practice wallet — previews first |
 
 The leaderboard publishes return and win rate but no leverage and no
 drawdown, so these compute them. On the first live run the top-ranked trader

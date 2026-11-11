@@ -137,6 +137,7 @@ from tradingview_mcp.core.services.paper_widget import (
     wallet_widget_html,
 )
 from tradingview_mcp.core.services.brief_service import market_brief as _market_brief
+from tradingview_mcp.core.services.paper_copy import copy_trader as _copy_trader
 from tradingview_mcp.core.services.paper_orders import (
     cancel_order as _cancel_order,
     list_orders as _list_orders,
@@ -2130,6 +2131,72 @@ async def alert_schedule(every_minutes: int = 15) -> dict:
 
 
 # -- Paper trading -------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(title="Copy Trader To Paper Wallet", readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True))
+async def paper_copy_trader(
+    unique_code: Annotated[
+        str,
+        Field(description="The trader's uniqueCode from lead_traders"),
+    ],
+    wallet: Annotated[
+        Optional[str],
+        Field(description="Which wallet to copy into. A separate one is "
+            "worth using, so a copied strategy keeps its own record"),
+    ] = None,
+    margin_pct: Annotated[
+        float,
+        Field(description="Margin per copied position, as a percent of the "
+            "wallet's starting balance. Default 2"),
+    ] = 2.0,
+    max_positions: Annotated[
+        int,
+        Field(description="Most positions to copy, 1-10"),
+    ] = 5,
+    instrument_type: Annotated[
+        str,
+        Field(description='"SWAP" or "SPOT"'),
+    ] = "SWAP",
+    confirm: Annotated[
+        bool,
+        Field(description="False previews the plan and writes nothing. True "
+            "opens the positions"),
+    ] = False,
+) -> dict:
+    """Open what a lead trader is holding, in a simulated wallet.
+
+    SIMULATED: nothing reaches an exchange, and no money moves.
+
+    Previews by default — opening several positions from one sentence should
+    be read first, so nothing is written until confirm=true.
+
+    This is NOT copy trading, and the difference is the whole risk. You enter
+    at today's price, not theirs: a leaderboard shows trades already running,
+    so a position most of the way to its target is one where you buy what is
+    left of the move while carrying the full distance to the stop. Every row
+    reports already_moved_pct, and the result leads with the furthest along.
+
+    Copied positions have NO STOP, because OKX publishes what a trader holds
+    and never where they would get out. Set one per position afterwards, or
+    decide deliberately not to.
+
+    Sizing is yours, not theirs: each position takes margin_pct of this
+    wallet's starting balance, at their leverage capped to the wallet's
+    maximum. A capped position is a different trade from theirs, not a
+    smaller one, and it says so.
+
+    Returns:
+        dict with the plan, what was skipped and why, the cash it needs and
+        what was opened. On ANY failure returns a structured error envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            _copy_trader, unique_code, wallet, margin_pct, max_positions,
+            instrument_type, confirm,
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="paper_copy_trader")
+
+
 
 @mcp.tool(annotations=ToolAnnotations(title="List Paper Wallets", readOnlyHint=True, destructiveHint=False, openWorldHint=False))
 async def paper_wallet_list() -> dict:
