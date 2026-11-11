@@ -60,11 +60,11 @@ Backtest an RSI strategy on BTC on the daily timeframe
 > [!NOTE]
 > **Does it need — or risk — your TradingView account? No.** This server does **not** log into, scrape, or automate a TradingView session, and it requires no TradingView account or API key. Market data is fetched server-side from public endpoints, so there is no account of yours in the loop and no browser/UI automation. *(This is different from MCP servers that drive the TradingView Desktop app via Chrome DevTools.)* You are responsible for ensuring your own use complies with the terms of any data source you point it at.
 
-## 🧪 This fork adds 40 tools — including a paper-trading wallet
+## 🧪 This fork adds 41 tools — including a paper-trading wallet
 
 > This is a fork of [atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)
 > (MIT, © 2025 Ahmet Taner Atila). Everything below is added on top of the
-> upstream tools documented further down. **79 tools, 1,113 tests.**
+> upstream tools documented further down. **80 tools, 1,130 tests.**
 
 **New here? Start by asking your AI these three things:**
 
@@ -171,6 +171,7 @@ position nobody could price, a feed that went quiet.
 | `alert_create` / `alert_check` / `alert_list` / `alert_manage` / `alert_metrics` | Standing conditions on price, RSI, funding, breadth — evaluated on demand |
 | `fear_greed` | The crypto Fear & Greed index — **no API key needed** |
 | `narrative_rotation` | Which sectors are moving, with a market-cap floor on by default |
+| `crypto_bubbles` | Top 10/30/50 by market cap with change over 1h, 24h, 7d, 30d and 1y at once |
 
 Alerts persist in SQLite but nothing is pushed: pair `alert_check` with a
 scheduler and relay what fires.

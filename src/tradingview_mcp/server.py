@@ -137,6 +137,7 @@ from tradingview_mcp.core.services.paper_widget import (
     wallet_widget_html,
 )
 from tradingview_mcp.core.services.brief_service import market_brief as _market_brief
+from tradingview_mcp.core.services.bubbles_service import crypto_bubbles as _crypto_bubbles
 from tradingview_mcp.core.services.paper_copy import copy_trader as _copy_trader
 from tradingview_mcp.core.services.paper_orders import (
     cancel_order as _cancel_order,
@@ -2128,6 +2129,52 @@ async def alert_schedule(every_minutes: int = 15) -> dict:
         return await asyncio.to_thread(_alert_schedule, every_minutes)
     except Exception as e:
         return exception_to_envelope(e, context="alert_schedule")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Crypto Bubbles", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def crypto_bubbles(
+    limit: Annotated[
+        int,
+        Field(description="How many coins by market cap, 1-100. 10, 30 and "
+            "50 are the usual views"),
+    ] = 30,
+    window: Annotated[
+        str,
+        Field(description="Which change to lead with: 1h, 24h, 7d, 30d or "
+            "1y. Every window comes back regardless"),
+    ] = "24h",
+    include_stablecoins: Annotated[
+        bool,
+        Field(description="Keep the coins built not to move. Off by default, "
+            "since they take the biggest bubbles to say nothing"),
+    ] = False,
+) -> dict:
+    """The top of the market by size, with how far each coin has moved.
+
+    The data behind a bubble chart: rank, market cap, price, volume and the
+    change over 1h, 24h, 7d, 30d and 1y for every coin in one call — so a
+    rendered view can switch window without asking again.
+
+    Answers in one glance what a table does not: whether a move is broad or
+    a few names, and whether money is leaving the large caps or the small
+    ones. Breadth comes with it — how many up, how many down, the median,
+    and the extremes.
+
+    change_pct is PRICE change, not market-cap change: a coin that unlocked
+    supply can fall in price while its cap holds. Ranking and caps are
+    CoinGecko's own.
+
+    Returns:
+        dict with coins, breadth, the total cap of the set and which
+        stablecoins were removed. On ANY failure returns a structured error
+        envelope.
+    """
+    try:
+        return await asyncio.to_thread(
+            _crypto_bubbles, limit, window, include_stablecoins
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="crypto_bubbles")
 
 
 # -- Paper trading -------------------------------------------------------------

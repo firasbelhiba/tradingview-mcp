@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **`crypto_bubbles`** returns the top N coins by market cap with the change
+  over 1h, 24h, 7d, 30d and 1y in a single call, so a rendered view can
+  switch window without refetching. Breadth comes with it. Source is
+  CoinGecko's public markets endpoint, cached 60s — the exchange-pair
+  screener returns `market_cap_calc` as null, so market-cap ranking cannot
+  come from there. Stablecoins are dropped by default and the dropped ones
+  named; the result says that `change_pct` is price change, not market-cap
+  change.
 - **`paper_copy_trader`** mirrors a lead trader's open positions into a
   simulated wallet. It previews by default and writes nothing until
   `confirm=true`. It is not copy trading and says so: you enter at today's
