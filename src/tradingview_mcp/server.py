@@ -134,6 +134,7 @@ from tradingview_mcp.core.services.paper_widget import (
     ui_resource_uri,
     wallet_widget_html,
 )
+from tradingview_mcp.core.services.brief_service import market_brief as _market_brief
 from tradingview_mcp.core.services.paper_trading_service import (
     close_trade as _paper_close,
     modify_trade as _paper_modify,
@@ -2000,6 +2001,47 @@ async def squeeze_scan(
         )
     except Exception as e:
         return exception_to_envelope(e, context="squeeze_scan")
+
+
+@mcp.tool(annotations=ToolAnnotations(title="Market Brief", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
+async def market_brief(
+    exchange: str = "KUCOIN",
+    symbol: str = "BTCUSDT",
+    include_wallet: bool = True,
+    include_alerts: bool = True,
+) -> dict:
+    """The market in one call — the answer to "how's the market?".
+
+    Replaces six round trips: breadth, the bitcoin pulse, perp positioning,
+    sentiment, your standing alerts and your paper wallet. They run
+    concurrently and come back as one object.
+
+    A section that fails says so and the brief still returns, because losing
+    the whole answer when one feed times out would be worse than the separate
+    calls this replaces. Check `unavailable` and `attention` before reading
+    the healthy sections.
+
+    It reports; it does not advise. Each section carries its own assessment;
+    reading across them is your job.
+
+    Args:
+        exchange: Venue for the breadth read
+        symbol: Perpetual for the positioning read
+        include_wallet: Add the paper wallet's standing
+        include_alerts: Evaluate standing alerts and report what fired
+
+    Returns:
+        dict with headline, sections, attention (things a glance should not
+        miss), fired_alerts and unavailable. On total failure returns a
+        structured error envelope.
+    """
+    try:
+        exchange = validate_exchange(exchange, "kucoin")
+        return await asyncio.to_thread(
+            _market_brief, exchange, symbol, include_wallet, include_alerts
+        )
+    except Exception as e:
+        return exception_to_envelope(e, context="market_brief")
 
 
 # -- Paper trading -------------------------------------------------------------
