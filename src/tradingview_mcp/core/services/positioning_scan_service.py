@@ -29,7 +29,14 @@ from tradingview_mcp.core.services import positioning_service as ps
 
 _DEFAULT_FUNDING_INTERVAL_H = 8.0
 _MAX_SHORTLIST = 30
-_WORKERS = 6
+# Measured, not guessed. Each shortlisted symbol costs three SEQUENTIAL
+# requests, so wall-clock is (candidates / _WORKERS) x 3 request-times. At 6
+# the full scan of 30 candidates ran 5.2-5.6s across three samples (median
+# 5.3s); at 12 the median was 3.78s, with no symbol failing to grade in any
+# run. Raising it further did not help - Binance paces a single IP - and the
+# tail got noisier (one 8.3s sample at 12), so this buys a faster typical
+# scan and a slightly wider spread, not a uniformly faster one.
+_WORKERS = 12
 
 DIRECTIONS = ("both", "longs_pay", "shorts_pay")
 

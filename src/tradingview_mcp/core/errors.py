@@ -35,6 +35,11 @@ class ErrorCode(str, Enum):
 
     # Input / validation
     SYMBOL_NOT_FOUND = "SYMBOL_NOT_FOUND"
+    # A row this server keeps itself - a paper position, an alert.
+    # Distinct from SYMBOL_NOT_FOUND, which means a market symbol is
+    # unlisted: a client that reads the wrong one of these goes
+    # hunting for a ticker when the id was simply stale.
+    RECORD_NOT_FOUND = "RECORD_NOT_FOUND"
     INVALID_EXCHANGE = "INVALID_EXCHANGE"
     INVALID_TIMEFRAME = "INVALID_TIMEFRAME"
     INVALID_PARAMETER = "INVALID_PARAMETER"

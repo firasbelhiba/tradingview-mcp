@@ -129,3 +129,83 @@ def test_each_hint_warns_about_its_own_trap():
     assert "not a low-risk symbol" in display_hints.SQUEEZE
     assert "per symbol" in display_hints.FUNDING
     assert "missing, not low" in display_hints.LEAD_TRADERS
+
+
+# ── 5. The code a client branches on must describe what went missing ──────────
+
+def test_a_missing_local_row_is_not_reported_as_a_missing_symbol():
+    """SYMBOL_NOT_FOUND means a market does not list a ticker.
+
+    A stale paper-position id and a stale alert id are rows in this server's
+    own database. Reusing the symbol code for them sent a client hunting for
+    a ticker when the id had simply been deleted.
+    """
+    from tradingview_mcp.core.errors import ErrorCode
+
+    assert ErrorCode.RECORD_NOT_FOUND.value == "RECORD_NOT_FOUND"
+    assert ErrorCode.RECORD_NOT_FOUND != ErrorCode.SYMBOL_NOT_FOUND
+
+
+def test_a_real_symbol_miss_still_uses_the_symbol_code():
+    """The fix must not drag the genuine cases along with it."""
+    from tradingview_mcp.core.services import crypto_analysis_service as cas
+
+    src = (
+        __import__("pathlib").Path(cas.__file__).read_text(encoding="utf-8")
+    )
+    assert "SYMBOL_NOT_FOUND" in src, "an unlisted ticker is still that"
+
+
+# ── 6. Hint lists a person can read ───────────────────────────────────────────
+
+def test_timeframes_are_listed_in_time_order():
+    """Sorted alphabetically they came back 15m, 1D, 1M, 1W, 1h, 4h, 5m —
+    every value right and the sequence meaningless."""
+    from tradingview_mcp.core.errors import ScreenerServiceError
+    from tradingview_mcp.core.utils.validators import validate_timeframe
+
+    with pytest.raises(ScreenerServiceError) as caught:
+        validate_timeframe("7m")
+    listed = caught.value.to_envelope()["error"]["valid_timeframes"]
+    assert listed == ["5m", "15m", "1h", "4h", "1D", "1W", "1M"]
+
+
+def test_a_typo_gets_the_name_it_probably_meant():
+    from tradingview_mcp.core.errors import ScreenerServiceError
+    from tradingview_mcp.core.utils.validators import validate_exchange
+
+    with pytest.raises(ScreenerServiceError) as caught:
+        validate_exchange("kucion")
+    assert caught.value.to_envelope()["error"]["did_you_mean"] == ["kucoin"]
+
+
+def test_a_typo_is_matched_case_insensitively():
+    from tradingview_mcp.core.errors import ScreenerServiceError
+    from tradingview_mcp.core.utils.validators import validate_exchange
+
+    with pytest.raises(ScreenerServiceError) as caught:
+        validate_exchange("BINENCE")
+    assert "binance" in caught.value.to_envelope()["error"]["did_you_mean"]
+
+
+def test_a_name_resembling_nothing_gets_no_guess():
+    """A suggestion that is not close is worse than none."""
+    from tradingview_mcp.core.errors import ScreenerServiceError
+    from tradingview_mcp.core.utils.validators import validate_exchange
+
+    with pytest.raises(ScreenerServiceError) as caught:
+        validate_exchange("zzzzzzzz")
+    assert caught.value.to_envelope()["error"]["did_you_mean"] is None
+
+
+def test_grouping_the_exchanges_drops_none_of_them():
+    """The list is what a caller self-corrects from, so it stays complete."""
+    from tradingview_mcp.core.utils import validators as v
+
+    grouped = v._exchanges_by_kind()
+    assert sorted(grouped["crypto"] + grouped["stock"]) == v._all_exchanges()
+    assert not set(grouped["crypto"]) & set(grouped["stock"])
+    assert len(grouped["crypto"]) < len(grouped["stock"]), (
+        "most accepted venues are stock markets, which is why one flat list "
+        "buried the crypto ones"
+    )

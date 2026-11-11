@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **A missing paper position or alert now returns `RECORD_NOT_FOUND`, not
+  `SYMBOL_NOT_FOUND`**: both are rows in this server's own database, and the
+  symbol code sent clients hunting for a ticker when an id had simply been
+  deleted. Both envelopes also now state `retryable: false`, which they left
+  unset. If you branch on `SYMBOL_NOT_FOUND` for `paper_trade_close`,
+  `paper_trade_modify` or `alert_manage`, that branch needs the new code.
+  Genuine unlisted-symbol errors are unchanged.
+- **`valid_exchanges` in an `INVALID_EXCHANGE` envelope is now grouped**
+  `{"crypto": [...], "stock": [...]}` rather than one flat list of 67, and a
+  near-miss gets `did_you_mean`. No accepted value was dropped. Code reading
+  that field as a flat list needs updating.
+- **`valid_timeframes` is now in time order** (`5m, 15m, 1h, 4h, 1D, 1W,
+  1M`) instead of alphabetical (`15m, 1D, 1M, 1W, 1h, 4h, 5m`).
+
 ### Fixed
 - **`compare_strategies` could name a strategy with no trades the winner**:
   the leaderboard was sorted by return alone, and a strategy that never

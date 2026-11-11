@@ -478,7 +478,12 @@ def test_closing_twice_is_refused(monkeypatch):
 
 def test_closing_an_unknown_position(monkeypatch):
     svc.reset_wallet(10000.0)
-    assert svc.close_trade(999)["error"]["code"] == "SYMBOL_NOT_FOUND"
+    # A position id is a row in this server's own database, not a
+    # market symbol, and no retry will conjure it.
+    err = svc.close_trade(999)["error"]
+    assert err["code"] == "RECORD_NOT_FOUND"
+    assert err["retryable"] is False
+    assert err["position_id"] == 999
 
 
 def test_modify_moves_the_levels(monkeypatch):

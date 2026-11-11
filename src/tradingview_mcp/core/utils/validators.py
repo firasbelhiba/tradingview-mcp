@@ -1,8 +1,9 @@
 from __future__ import annotations
 import os
-from typing import Set
+from typing import Dict, List, Set, Tuple
 
-ALLOWED_TIMEFRAMES: Set[str] = {"5m", "15m", "1h", "4h", "1D", "1W", "1M"}
+TIMEFRAME_ORDER: Tuple[str, ...] = ("5m", "15m", "1h", "4h", "1D", "1W", "1M")
+ALLOWED_TIMEFRAMES: Set[str] = set(TIMEFRAME_ORDER)
 _TIMEFRAME_ALIASES = {
     "5m": "5m",
     "15m": "15m",
@@ -318,7 +319,7 @@ def validate_timeframe(tf: str, default: str = "5m") -> str:
     raise ScreenerServiceError(
         ErrorCode.INVALID_TIMEFRAME,
         f"Invalid timeframe {tf!r}.",
-        valid_timeframes=sorted(ALLOWED_TIMEFRAMES),
+        valid_timeframes=list(TIMEFRAME_ORDER),
         retryable=False,
     )
 
@@ -334,9 +335,41 @@ def validate_exchange(ex: str, default: str = "kucoin") -> str:
     raise ScreenerServiceError(
         ErrorCode.INVALID_EXCHANGE,
         f"Invalid exchange {ex!r}.",
-        valid_exchanges=sorted({*EXCHANGE_SCREENER, *_TA_ONLY_SCREENERS}),
+        did_you_mean=_close_exchanges(exs) or None,
+        valid_exchanges=_exchanges_by_kind(),
         retryable=False,
     )
+
+
+def _all_exchanges() -> List[str]:
+    return sorted({*EXCHANGE_SCREENER, *_TA_ONLY_SCREENERS})
+
+
+def _close_exchanges(typed: str, limit: int = 3) -> List[str]:
+    """The handful a typo probably meant.
+
+    A bad exchange used to return all 67 valid ones, crypto and stock venues
+    in one flat list, which is a wall of text in answer to a slip of the
+    keyboard. The grouped list below is still there to self-correct from;
+    this is the part worth reading first.
+    """
+    import difflib
+
+    return difflib.get_close_matches(typed, _all_exchanges(), n=limit, cutoff=0.6)
+
+
+def _exchanges_by_kind() -> Dict[str, List[str]]:
+    """The same 67 names, split so the list can be scanned.
+
+    Nothing is dropped - a caller self-correcting from this envelope still
+    sees every accepted value - but a crypto tool handed "NOPE" should not
+    make someone read Euronext Lisbon to find KuCoin.
+    """
+    names = _all_exchanges()
+    return {
+        "crypto": [e for e in names if e not in STOCK_EXCHANGES],
+        "stock": [e for e in names if e in STOCK_EXCHANGES],
+    }
 
 
 def is_stock_exchange(exchange: str) -> bool:

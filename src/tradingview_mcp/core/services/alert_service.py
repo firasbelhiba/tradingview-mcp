@@ -188,7 +188,8 @@ def delete_alert(alert_id: int) -> dict:
     existing = store.get_alert(alert_id)
     if not existing:
         return make_error(
-            ErrorCode.SYMBOL_NOT_FOUND, f"No alert with id {alert_id}", alert_id=alert_id
+            ErrorCode.RECORD_NOT_FOUND, f"No alert with id {alert_id}",
+            alert_id=alert_id, retryable=False,
         )
     store.delete_alert(alert_id)
     return {"deleted": True, "alert_id": alert_id, "was": _describe(existing)}
@@ -198,7 +199,8 @@ def rearm_alert(alert_id: int) -> dict:
     existing = store.get_alert(alert_id)
     if not existing:
         return make_error(
-            ErrorCode.SYMBOL_NOT_FOUND, f"No alert with id {alert_id}", alert_id=alert_id
+            ErrorCode.RECORD_NOT_FOUND, f"No alert with id {alert_id}",
+            alert_id=alert_id, retryable=False,
         )
     store.rearm(alert_id)
     return {"rearmed": True, "alert_id": alert_id, "condition": _describe(existing)}

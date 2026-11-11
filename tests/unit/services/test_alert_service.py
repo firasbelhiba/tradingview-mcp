@@ -323,7 +323,12 @@ def test_delete_through_the_service():
 
 
 def test_delete_missing_alert_is_an_error():
-    assert svc.delete_alert(4242)["error"]["code"] == "SYMBOL_NOT_FOUND"
+    # A stale alert id is not an unlisted ticker. A client branching on
+    # SYMBOL_NOT_FOUND here would go looking for a symbol.
+    err = svc.delete_alert(4242)["error"]
+    assert err["code"] == "RECORD_NOT_FOUND"
+    assert err["retryable"] is False, "the row will not appear on retry"
+    assert err["alert_id"] == 4242
 
 
 def test_rearm_through_the_service():
@@ -334,4 +339,6 @@ def test_rearm_through_the_service():
 
 
 def test_rearm_missing_alert_is_an_error():
-    assert svc.rearm_alert(4242)["error"]["code"] == "SYMBOL_NOT_FOUND"
+    err = svc.rearm_alert(4242)["error"]
+    assert err["code"] == "RECORD_NOT_FOUND"
+    assert err["retryable"] is False

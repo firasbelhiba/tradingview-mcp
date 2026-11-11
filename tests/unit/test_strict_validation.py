@@ -30,7 +30,13 @@ class TestValidators:
             validate_exchange("KRAKEN", "kucoin")
         env = exc_info.value.to_envelope()
         assert env["error"]["code"] == "INVALID_EXCHANGE"
-        assert "binance" in env["error"]["valid_exchanges"]
+        # Grouped, not one flat list of 67: a crypto tool handed a bad
+        # exchange should not make anyone read Euronext Lisbon to find
+        # KuCoin. Nothing is dropped, so self-correction still works.
+        valid = env["error"]["valid_exchanges"]
+        assert "binance" in valid["crypto"]
+        assert "egx" in valid["stock"]
+        assert "binance" not in valid["stock"]
         assert env["error"]["retryable"] is False
 
     def test_unknown_timeframe_raises_with_valid_list(self):

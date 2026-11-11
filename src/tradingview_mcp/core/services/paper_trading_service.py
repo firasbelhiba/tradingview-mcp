@@ -472,8 +472,8 @@ def close_trade(position_id: int, note: Optional[str] = None) -> dict:
     position = store.get_position(int(position_id))
     if not position:
         return make_error(
-            ErrorCode.SYMBOL_NOT_FOUND, f"No position with id {position_id}",
-            position_id=position_id,
+            ErrorCode.RECORD_NOT_FOUND, f"No position with id {position_id}",
+            position_id=position_id, retryable=False,
         )
     if position["status"] != store.OPEN:
         return make_error(
@@ -568,7 +568,8 @@ def modify_trade(position_id: int, stop_loss: Optional[float] = None,
     position = store.get_position(int(position_id))
     if not position:
         return make_error(
-            ErrorCode.SYMBOL_NOT_FOUND, f"No position with id {position_id}"
+            ErrorCode.RECORD_NOT_FOUND, f"No position with id {position_id}",
+            position_id=position_id, retryable=False,
         )
     if position["status"] != store.OPEN:
         return make_error(
