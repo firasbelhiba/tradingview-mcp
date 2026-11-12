@@ -46,7 +46,10 @@ def copy_database(source: Path, target: Path) -> int:
             dst.close()
     finally:
         src.close()
-    check = sqlite3.connect(f"file:{target}?mode=ro", uri=True)
+    # immutable: read the copy without taking locks. A plain read-only open of
+    # a WAL-mode file still creates -shm and -wal beside it, and a backup
+    # folder should hold the files that were backed up and nothing else.
+    check = sqlite3.connect(f"file:{target}?mode=ro&immutable=1", uri=True)
     try:
         verdict = check.execute("PRAGMA integrity_check").fetchone()[0]
         if verdict != "ok":

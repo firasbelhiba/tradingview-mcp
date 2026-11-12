@@ -61,7 +61,8 @@ def test_rows_still_in_the_write_ahead_log_are_in_the_copy(dirs):
     symbols = {row[0] for row in copy.execute("SELECT symbol FROM positions")}
     copy.close()
     assert "LATEUSDT" in symbols
-    assert not list(folder.glob("*-wal")), "the copy is one whole file"
+    leftovers = [f.name for f in folder.iterdir() if f.name.endswith(("-wal", "-shm"))]
+    assert leftovers == [], "the copy is one whole file, with nothing beside it"
 
 
 def test_only_the_newest_are_kept(dirs):
