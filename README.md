@@ -240,9 +240,39 @@ tradingview-mcp streamable-http --host 0.0.0.0 --port 8000 \
 
 ### Install this fork
 
+The fork's work lives on the `crypto-swing-tools` branch. The repository's
+default branch is upstream's, so an install that does not name the branch
+gets the original 39 tools and none of the above.
+
+The only thing to install is [uv](https://docs.astral.sh/uv/). It fetches
+Python 3.13 itself, and this form needs no git:
+
 ```bash
-uv tool install git+https://github.com/firasbelhiba/tradingview-mcp --python 3.13
+uvx --python 3.13 --from https://github.com/firasbelhiba/tradingview-mcp/archive/refs/heads/crypto-swing-tools.zip tradingview-mcp --help
 ```
+
+The first run downloads and builds for about a minute, so run it once in a
+terminal before pointing an app at it; after that it starts in seconds. Then
+give your MCP client the same command without `--help`. For Claude Desktop
+that is Settings, Developer, Edit Config:
+
+```json
+{
+  "mcpServers": {
+    "tradingview": {
+      "command": "uvx",
+      "args": [
+        "--python", "3.13",
+        "--from", "https://github.com/firasbelhiba/tradingview-mcp/archive/refs/heads/crypto-swing-tools.zip",
+        "tradingview-mcp"
+      ]
+    }
+  }
+}
+```
+
+Quit the app completely and reopen it. The paper wallet and alerts are files
+in `.tradingview-mcp` in your home folder and never leave your machine.
 
 Pin `--python 3.13` — without it the environment can be built on 3.12 and the
 launcher may silently serve a different copy. No API key is needed for
