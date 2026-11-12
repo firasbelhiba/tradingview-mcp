@@ -65,6 +65,10 @@ def _feeds(monkeypatch, *, funding=0.0001, mark=70000.0, oi=100000.0,
     ("KUCOIN:BTCUSDT", "BTCUSDT"),
     ("BTC-USDT", "BTCUSDT"),
     ("BTC/USDT", "BTCUSDT"),
+    # A coin named bare means its USDT pair.
+    ("BTC", "BTCUSDT"),
+    ("sol", "SOLUSDT"),
+    ("BTCUSD", "BTCUSDT"),
 ])
 def test_perp_symbol_normalisation(given, expected):
     assert bn.perp_symbol_for(given) == expected
@@ -72,7 +76,9 @@ def test_perp_symbol_normalisation(given, expected):
 
 def test_spot_only_pair_is_reported_with_suggestions(monkeypatch):
     _feeds(monkeypatch)
-    out = svc.analyze_positioning("BTCUSD")  # not in the patched universe
+    # BTCUSD used to stand in for "a pair with no perpetual"; it is now
+    # read as BTCUSDT, so a euro pair plays that part.
+    out = svc.analyze_positioning("BTCEUR")  # not in the patched universe
     assert out["error"]["code"] == "SYMBOL_NOT_FOUND"
     assert "perpetual" in out["error"]["message"].lower()
     assert out["error"]["perpetuals_available"] == 2

@@ -22,7 +22,10 @@ from math import sqrt
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from tradingview_mcp.core.errors import ErrorCode, make_error
-from tradingview_mcp.core.services.crypto_analysis_service import fetch_crypto_candles
+from tradingview_mcp.core.services.crypto_analysis_service import (
+    binance_symbol_for,
+    fetch_crypto_candles,
+)
 
 _MAX_SYMBOLS = 20
 _MIN_OVERLAP = 30          # paired observations below this is not a correlation
@@ -170,6 +173,10 @@ def analyze_correlation(
         beta = _beta(xs, ys)
         rows.append({
             "symbol": symbol,
+            # The pair the candles came from, when it is not what was typed:
+            # "sol" is measured as SOLUSDT, and the row should say so.
+            **({"measured_as": binance_symbol_for(symbol)}
+               if binance_symbol_for(symbol) != symbol else {}),
             "correlation": None if corr is None else round(corr, 3),
             "r_squared": None if corr is None else round(corr * corr, 3),
             "beta": None if beta is None else round(beta, 3),
@@ -318,8 +325,10 @@ def analyze_seasonality(
                             reverse=reverse)[0]
         return {"bucket": key, **value}
 
+    from tradingview_mcp.core.utils.validators import crypto_pair
+
     return {
-        "symbol": symbol.upper(),
+        "symbol": crypto_pair(symbol, "BINANCE"),
         "timeframe": timeframe,
         "candle_source": source,
         "bars_analysed": len(candles),

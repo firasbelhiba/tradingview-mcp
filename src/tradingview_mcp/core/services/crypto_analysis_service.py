@@ -101,11 +101,10 @@ _KLINE_LIMIT = 500       # bars per Binance request (its ceiling is 1500)
 
 
 def binance_symbol_for(symbol: str) -> str:
-    """Strip an exchange prefix and separators to Binance's symbol spelling."""
-    raw = (symbol or "").strip().upper()
-    if ":" in raw:
-        raw = raw.split(":", 1)[1]
-    return raw.replace("-", "").replace("/", "")
+    """Binance's spelling of a symbol. A coin's bare name means its USDT pair."""
+    from tradingview_mcp.core.utils.validators import crypto_pair
+
+    return crypto_pair(symbol, "BINANCE")
 
 
 # ── Symbol helpers ────────────────────────────────────────────────────────────
@@ -125,6 +124,12 @@ def yahoo_crypto_symbol(symbol: str) -> str:
         return raw
     if ":" in raw:
         raw = raw.split(":", 1)[1]
+    # The ticker BTC on Yahoo is an ETF, and this is the fallback for
+    # crypto candles: a coin named bare has to become its pair first, or
+    # the fallback quietly charts a fund.
+    from tradingview_mcp.core.utils.validators import crypto_pair
+
+    raw = crypto_pair(raw, "BINANCE", known_only=True)
     for quote in _QUOTE_ASSETS:
         if raw.endswith(quote) and len(raw) > len(quote):
             base = raw[: -len(quote)]
@@ -760,7 +765,7 @@ def detect_rsi_divergence(
     findings.sort(key=lambda f: -f["strength"])
     last_rsi = _last_not_none(rsi)
     return {
-        "symbol": symbol.upper(),
+        "symbol": binance_symbol_for(symbol),
         "timeframe": timeframe,
         "candles_analyzed": len(candles),
         "candle_source": candle_source,

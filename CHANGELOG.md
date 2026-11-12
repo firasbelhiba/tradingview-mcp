@@ -72,6 +72,27 @@ All notable changes to this project will be documented in this file.
   case — the opposite bias to a stop, and the results say so.
 
 ### Fixed
+- **Naming a coin by its name analysed something else.** `coin_analysis`
+  with `BTC` returned `LSE:BTC`, a London-listed stock at 1.30, even with
+  `exchange="BINANCE"`; `ETH` gave a Milan listing and `SOL` an Australian
+  one. A venue fallback meant for stock tickers typed without an exchange
+  answered a missed crypto lookup from whichever exchange shared the
+  ticker. Measured across 15 tools and 6 spellings, other tools charted
+  the Yahoo ticker `BTC` (an ETF) through the candle fallback, stored an
+  alert against a symbol no crypto venue has so it could never fire, or
+  refused. Four separate cleaners each stripped a prefix and a separator
+  and stopped there. They now share one rule, `crypto_pair`: on a crypto
+  venue `BTC`, `btc`, `BTC/USDT`, `BTC-USDT`, `BTCUSD` and `KUCOIN:BTC`
+  all mean `BTCUSDT`. Stock venues, explicit non-crypto prefixes, pairs
+  already written as pairs, and codes that are not plain asset names
+  (`BTC.D`, `BTCUSDT.P`) are left untouched. After the change none of the
+  75 cells measured refused or answered about a different asset.
+  A stock typed on the crypto default is still found on its own exchange,
+  but the result now opens with `different_asset_warning` instead of
+  carrying the fact in a note at the end. `rsi_divergence`, `seasonality`
+  and `volume_confirmation_analysis` name the pair they analysed rather
+  than echoing what was typed, and an alert is stored under the symbol it
+  will be checked against.
 - **Money held for a resting order was missing from equity.**
   `paper_wallet_status` computed equity as cash plus margin posted plus
   unrealised PnL, so a wallet with 300 waiting in a limit order read as

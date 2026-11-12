@@ -26,6 +26,10 @@ from tradingview_mcp.core.services import crypto_analysis_service as svc
     ("GC=F", "GC=F"),
     ("AAPL", "AAPL"),
     ("", ""),
+    # The Yahoo ticker BTC is an ETF. A coin named bare becomes its pair
+    # first, so the fallback charts the coin.
+    ("BTC", "BTC-USD"),
+    ("sol", "SOL-USD"),
 ])
 def test_yahoo_crypto_symbol(pair, expected):
     assert svc.yahoo_crypto_symbol(pair) == expected

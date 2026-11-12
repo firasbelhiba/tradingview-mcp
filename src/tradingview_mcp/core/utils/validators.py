@@ -262,17 +262,106 @@ def normalize_yahoo_symbol(symbol: str) -> str:
     return _YAHOO_SYMBOL_ALIASES.get(raw, raw)
 
 
+# ── What a person means when they name a coin ────────────────────────────────
+#
+# People say BTC. Every tool here wanted BTCUSDT, and what happened to BTC
+# depended on which tool was asked: one analysed LSE:BTC, a London-listed
+# stock at 1.30; three took candles for the ticker BTC from Yahoo, which is an
+# ETF; an alert was stored against a symbol that does not exist and so could
+# never fire; the rest refused. Four separate cleaners each stripped a prefix
+# and a separator and stopped there. This is the one rule they now share.
+
+_PAIR_QUOTES = ("USDT", "USDC", "FDUSD", "BUSD", "TUSD", "DAI", "USD", "EUR",
+                "TRY", "BTC", "ETH", "BNB")
+_STABLE_ASSETS = frozenset({"USDT", "USDC", "FDUSD", "BUSD", "TUSD", "DAI", "USD"})
+
+
+def _looks_like_pair(code: str) -> bool:
+    """Whether a code already ends in a quote asset with a base in front.
+
+    The base must be at least two characters, so BTC and ETH are not read as
+    an empty base quoted in themselves, and WBTC is not read as W/BTC.
+    """
+    return any(
+        code.endswith(quote) and len(code) - len(quote) >= 2
+        for quote in _PAIR_QUOTES
+    )
+
+
+def crypto_pair(symbol: str, exchange: str = "", known_only: bool = False) -> str:
+    """The pair meant by a coin's name on a crypto venue. No exchange prefix.
+
+    ``BTC``, ``btc``, ``BTC/USDT``, ``BTC-USDT`` and ``KUCOIN:BTC`` all give
+    ``BTCUSDT``. A code that is already a pair, or that the venue lists as
+    typed, is returned untouched, and so is anything that is not a plain
+    asset code (``BTC.D``, ``BTCUSDT.P``, ``GC1!``).
+
+    The venue's bundled list decides when it can. It is not the only judge,
+    because the lists go stale: a plain code the list has never heard of
+    still becomes its USDT pair, since on a crypto venue that is what it
+    means, and a wrong guess there is an honest not-found rather than a
+    different company's chart.
+
+    ``known_only`` withholds that last guess, for a caller where the code
+    may equally be a stock: the name is promoted to a pair only if some
+    crypto venue's list has it.
+    """
+    raw = (symbol or "").strip().upper()
+    if ":" in raw:
+        raw = raw.split(":", 1)[1]
+    code = raw.replace("/", "").replace("-", "").replace("_", "")
+    if not code.isalnum() or code in _STABLE_ASSETS:
+        return code
+
+    from tradingview_mcp.core.services.coinlist import _coinlist_index
+
+    index = _coinlist_index()
+    listed = index.get((exchange or "").strip().upper(), frozenset())
+    if code in listed:
+        return code
+    if f"{code}USDT" in listed:
+        return f"{code}USDT"
+    # BTCUSD and BTC-USD are how other sites spell it; here the dollar pair
+    # is quoted in USDT.
+    if code.endswith("USD") and f"{code}T" in listed:
+        return f"{code}T"
+    if _looks_like_pair(code):
+        return code
+    if known_only:
+        anywhere = any(
+            f"{code}USDT" in index.get(venue.upper(), ())
+            for venue, screener in EXCHANGE_SCREENER.items()
+            if screener == "crypto"
+        )
+        return f"{code}USDT" if anywhere else code
+    if 2 <= len(code) <= 10:
+        return f"{code}USDT"
+    return code
+
+
+
 def normalize_tradingview_symbol(symbol: str, exchange: str) -> str:
     """Return a fully-qualified TradingView symbol, resolving common index aliases."""
     raw = (symbol or "").strip().upper()
     if raw in _TRADINGVIEW_SYMBOL_ALIASES:
         return _TRADINGVIEW_SYMBOL_ALIASES[raw]
     if ":" in raw:
+        # A prefix is kept exactly as written - whoever typed LSE:BTC meant
+        # it - except that on a crypto venue the name after it still means
+        # its pair: KUCOIN:BTC is KUCOIN:BTCUSDT.
+        prefix, bare = raw.split(":", 1)
+        if EXCHANGE_SCREENER.get(prefix.lower()) == "crypto":
+            return f"{prefix}:{crypto_pair(bare, prefix)}"
         return raw
     # Soft commodity aliases collide with real equities (NYSE:GOLD = Barrick Gold),
     # so only apply them for non-stock venues; stock exchanges keep the literal.
     if raw in _COMMODITY_SOFT_ALIASES and not is_stock_exchange(exchange):
         return _COMMODITY_SOFT_ALIASES[raw]
+    # On a crypto venue a coin's name means its pair. An explicit prefix,
+    # handled above, is left exactly as written: whoever typed LSE:BTC
+    # meant it.
+    if get_market_type(exchange) == "crypto":
+        raw = crypto_pair(raw, exchange)
     return f"{get_tv_exchange_prefix(exchange)}:{raw}"
 
 # Get absolute path to coinlist directory relative to this module

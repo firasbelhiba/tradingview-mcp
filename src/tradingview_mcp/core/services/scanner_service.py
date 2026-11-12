@@ -343,7 +343,7 @@ def volume_confirmation_analyze(
             volume_strength = "WEAK"
 
         return {
-            "symbol": symbol,
+            "symbol": full_symbol,
             "price_data": {
                 "close": close,
                 "change_percent": round(price_change, 2),

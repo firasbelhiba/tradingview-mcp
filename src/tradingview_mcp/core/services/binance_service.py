@@ -215,10 +215,10 @@ def perp_symbol_for(symbol: str) -> str:
     actually lists as a perp is checked by the caller against
     ``perpetual_symbols()``, because most pairs have no perpetual market.
     """
-    raw = (symbol or "").strip().upper()
-    if ":" in raw:
-        raw = raw.split(":", 1)[1]
-    return raw.replace("-", "").replace("/", "")
+    from tradingview_mcp.core.utils.validators import crypto_pair
+
+    # A coin's bare name means its USDT pair: BTC is BTCUSDT here too.
+    return crypto_pair(symbol, "BINANCE")
 
 
 # ── Candles ───────────────────────────────────────────────────────────────────

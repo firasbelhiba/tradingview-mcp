@@ -743,6 +743,18 @@ def analyze_coin(
                 if alt:
                     result = analyze_coin(symbol, alt, timeframe, _allow_venue_fallback=False)
                     if not is_error(result):
+                        if get_market_type(alt) != get_market_type(exchange):
+                            result = {
+                                "different_asset_warning": (
+                                    f"This is NOT a coin. {str(exchange).upper()} has no "
+                                    f"market for {symbol}, so this is the "
+                                    f"listing {alt}:{str(symbol).upper()} on a "
+                                    "different kind of exchange that happens "
+                                    "to share the ticker. Say so before "
+                                    "using any figure below."
+                                ),
+                                **result,
+                            }
                         result["requested_exchange"] = exchange
                         result["resolved_exchange"] = alt
                         result["resolution_note"] = (

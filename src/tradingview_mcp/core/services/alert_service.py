@@ -109,6 +109,21 @@ def _screener_for(exchange: str) -> str:
 
 # ── Create / list / delete ────────────────────────────────────────────────────
 
+def _stored_symbol(symbol: str, exchange: str) -> str:
+    """The symbol an alert is kept under: the one it will be checked against.
+
+    An alert on BTC used to be stored as BTC, a symbol no crypto venue
+    has, so it sat armed and could never fire. Wildcards and anything
+    carrying its own exchange prefix are kept as typed.
+    """
+    from tradingview_mcp.core.utils.validators import crypto_pair, get_market_type
+
+    raw = str(symbol).strip().upper()
+    if raw == "*" or ":" in raw or get_market_type(exchange or "") != "crypto":
+        return raw
+    return crypto_pair(raw, exchange or "")
+
+
 def create_alert(symbol: str, metric: str, operator: str, threshold: float,
                  exchange: str = "KUCOIN", timeframe: str = "4h",
                  note: Optional[str] = None,
@@ -149,7 +164,7 @@ def create_alert(symbol: str, metric: str, operator: str, threshold: float,
             limit=limits.MAX_ALERTS, retryable=False,
         )
     stored = store.add_alert(
-        symbol=str(symbol).strip().upper(),
+        symbol=_stored_symbol(symbol, exchange),
         exchange=(exchange or "KUCOIN").strip().upper(),
         metric=metric_key,
         operator=op,

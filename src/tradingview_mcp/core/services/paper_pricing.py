@@ -62,10 +62,10 @@ def _f(value: Any) -> Optional[float]:
 
 
 def normalise_symbol(symbol: str) -> str:
-    raw = (symbol or "").strip().upper()
-    if ":" in raw:
-        raw = raw.split(":", 1)[1]
-    return raw.replace("-", "").replace("/", "")
+    """The Binance pair a wallet symbol refers to. BTC means BTCUSDT."""
+    from tradingview_mcp.core.utils.validators import crypto_pair
+
+    return crypto_pair(symbol, "BINANCE")
 
 
 def mark_price(symbol: str, market: str) -> Tuple[float, str]:
