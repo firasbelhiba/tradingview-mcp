@@ -810,7 +810,13 @@ def wallet_status(include_closed: int = 0,
     closed = store.list_positions(store.CLOSED)
     realised_total = sum(p["realised_pnl"] or 0.0 for p in closed)
     margin_posted = sum(p["margin"] for p in store.list_positions(store.OPEN))
-    equity = wallet["cash"] + margin_posted + unrealised_total
+    # Margin held for a resting order has left `cash` but not the wallet.
+    # Leaving it out made a wallet with a 300 order waiting read as 300
+    # down, and disagree with paper_wallet_list, which always counted it.
+    held_for_orders = sum(
+        o["margin_held"] for o in store.list_orders(store.PENDING)
+    )
+    equity = wallet["cash"] + margin_posted + held_for_orders + unrealised_total
 
     result: Dict[str, Any] = {
         "wallet": {
@@ -818,6 +824,7 @@ def wallet_status(include_closed: int = 0,
             "starting_balance": round(wallet["starting_balance"], 2),
             "cash": round(wallet["cash"], 2),
             "margin_posted": round(margin_posted, 2),
+            "margin_on_resting_orders": round(held_for_orders, 2),
             "unrealised_pnl": round(unrealised_total, 4),
             "equity": round(equity, 2),
             "total_return_pct": round(
@@ -842,7 +849,10 @@ def wallet_status(include_closed: int = 0,
         # photograph of a moving thing, and without a time on it there
         # is no way to tell a fresh one from one left open for an hour.
         "as_of": store._now(),
-        "equity_note": "equity = cash + margin posted + unrealised pnl",
+        "equity_note": (
+            "equity = cash + margin posted + margin held for resting "
+            "orders + unrealised pnl"
+        ),
         "display_hint": (
             _DISPLAY_HINT_LIVE if open_rows else _DISPLAY_HINT
         ),

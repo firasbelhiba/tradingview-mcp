@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **`paper_wallet_widget` is now a real MCP App** (experimental). The first
+  version embedded an HTML resource in the tool result, which no host
+  draws. A host looks for three things and the tool now provides them:
+  `_meta.ui.resourceUri` on the tool, a `ui://` resource served as
+  `text/html;profile=mcp-app` with a content-security allow-list, and a
+  page that speaks the Apps bridge. The panel shows equity, cash, margin,
+  open positions and resting orders, surfaces positions that could not be
+  priced, and has a Refresh button that calls `paper_wallet_status`
+  directly rather than sending a chat message. The view receives the full
+  status as `structuredContent`; the model reads a short summary and is
+  told a panel is on screen, but only when the client advertised the
+  `io.modelcontextprotocol/ui` extension. Otherwise it gets exactly what
+  `paper_wallet_status` returns. The tool also takes `wallet` now. The
+  page loads one script, the pinned `@modelcontextprotocol/ext-apps`
+  bridge from unpkg; everything else is inline and every wallet value is
+  written as text. On an SDK too old to carry `_meta` the tool still works
+  and nothing is drawn. Approach taken from the upstream project's
+  `feat/price-chart-app` branch.
 - **A yardstick for whether an assistant uses the tools well**
   (`evals/tool_selection/`). 35 things a trader actually types, in English
   and French, each with the tool that should be reached for first, and 8
@@ -54,6 +72,13 @@ All notable changes to this project will be documented in this file.
   case — the opposite bias to a stop, and the results say so.
 
 ### Fixed
+- **Money held for a resting order was missing from equity.**
+  `paper_wallet_status` computed equity as cash plus margin posted plus
+  unrealised PnL, so a wallet with 300 waiting in a limit order read as
+  300 down: -3.04% on a wallet that had paid 0.04% in fees.
+  `paper_wallet_list` already counted it, so the two tools disagreed about
+  the same wallet. Equity now includes it, and the status carries
+  `margin_on_resting_orders`. Found by drawing the wallet.
 - **A mistyped trader code was described as a trader who hides.** OKX
   answers error 59269 both for a trader with private positions and for a
   code nobody has, so `lead_trader_profile` returned a profile with a null

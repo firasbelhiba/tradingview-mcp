@@ -26,7 +26,7 @@ from pydantic import Field
 # on a fresh stdio process). Preloading here makes the in-worker import a no-op.
 import pandas  # noqa: F401
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import ToolAnnotations
 
 # ── Service imports ────────────────────────────────────────────────────────────
@@ -129,13 +129,9 @@ from tradingview_mcp.core.services.copytrading_service import (
 from tradingview_mcp.core.services.copytrading_trades_service import (
     get_lead_trader_trades,
 )
-from mcp.types import EmbeddedResource, TextContent, TextResourceContents
-from pydantic import AnyUrl
+from mcp.types import CallToolResult, TextContent
 
-from tradingview_mcp.core.services.paper_widget import (
-    ui_resource_uri,
-    wallet_widget_html,
-)
+from tradingview_mcp import apps, wallet_app
 from tradingview_mcp.core.services.brief_service import market_brief as _market_brief
 from tradingview_mcp.core.services.bubbles_service import crypto_bubbles as _crypto_bubbles
 from tradingview_mcp.core.services.paper_copy import copy_trader as _copy_trader
@@ -230,6 +226,11 @@ mcp = FastMCP(
         "tool, or the question is narrow enough that one number answers it."
     ),
 )
+
+
+# The wallet panel: a ui:// page and the capability that says views are
+# served. Registered before the tools so the one that points at it can.
+_WALLET_APP_REGISTERED = wallet_app.register(mcp)
 
 
 # ── Screener tools ─────────────────────────────────────────────────────────────
@@ -2750,49 +2751,51 @@ async def paper_trade_history(
         return exception_to_envelope(e, context="paper_trade_history")
 
 
-@mcp.tool(structured_output=False, annotations=ToolAnnotations(title="Paper Wallet Widget", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
-async def paper_wallet_widget(include_closed: int = 0) -> list:
-    """The paper wallet as a ui:// panel — ONLY useful on an MCP Apps host.
+@mcp.tool(
+    structured_output=False,
+    annotations=ToolAnnotations(
+        title="Paper Wallet Panel", readOnlyHint=True, destructiveHint=False,
+        openWorldHint=True,
+    ),
+    **apps.tool_kwargs(wallet_app.WALLET_URI),
+)
+async def paper_wallet_widget(include_closed: int = 0, wallet: Optional[str] = None,
+                              ctx: Context = None) -> CallToolResult:
+    """The practice wallet as a live panel, on apps that can draw one.
 
-    MEASURED, not assumed: the Claude desktop app does NOT render this from a
-    local stdio server. Tested 2026-11-11 — the tool returned its resource and
-    the app printed the data as text instead. Remote connectors are a
-    different matter (the upstream project's hosted build draws charts this
-    way), so this stays for the day the server is hosted.
+    Same figures as paper_wallet_status. On a client that supports MCP Apps
+    the result is drawn as a panel with its own refresh button, and you are
+    handed a short summary and told the panel is on screen - do not repeat
+    the numbers or draw another. On any other client this returns exactly
+    what paper_wallet_status returns, display_hint included, so nothing is
+    lost by calling it.
 
-    Until then prefer paper_wallet_status: this one carries ~4KB of HTML that
-    nothing will draw, which is pure cost on every call.
-
-    A host that ignores the resource still gets the full text summary, and no
-    number lives only in a button, so nothing is hidden either way.
+    SIMULATED: nothing reaches an exchange.
 
     Args:
         include_closed: Also include this many recent closed positions
+        wallet: Which wallet. Omit for the default one.
 
     Returns:
-        A text summary plus an embedded ui:// resource. On ANY failure the
-        text carries the error envelope.
+        The wallet status. On ANY failure the text carries the error
+        envelope.
     """
     try:
-        status = await asyncio.to_thread(_paper_status, include_closed)
-        summary = json.dumps(status, default=str)
-        html = await asyncio.to_thread(wallet_widget_html, status)
-        return [
-            TextContent(type="text", text=summary),
-            EmbeddedResource(
-                type="resource",
-                resource=TextResourceContents(
-                    uri=AnyUrl(ui_resource_uri()),
-                    mimeType="text/html",
-                    text=html,
-                ),
-            ),
-        ]
+        status = await asyncio.to_thread(_paper_status, include_closed, wallet)
     except Exception as e:
-        return [TextContent(
-            type="text",
-            text=json.dumps(exception_to_envelope(e, context="paper_wallet_widget")),
-        )]
+        status = exception_to_envelope(e, context="paper_wallet_widget")
+    name = wallet_app.wallet_label(wallet)
+    draws = apps.client_supports_ui(ctx) if _WALLET_APP_REGISTERED else False
+    shown = dict(status)
+    if "error" not in shown:
+        shown["wallet_name"] = name
+        shown["wallet_is_default"] = name == wallet_app.DEFAULT_WALLET
+    return CallToolResult(
+        content=[TextContent(
+            type="text", text=wallet_app.text_for_model(status, name, draws),
+        )],
+        structuredContent=shown,
+    )
 
 
 # ── Alerts ─────────────────────────────────────────────────────────────────────
