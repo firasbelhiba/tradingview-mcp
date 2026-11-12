@@ -70,6 +70,40 @@ def audit_enabled() -> bool:
     return os.environ.get("TRADINGVIEW_MCP_AUDIT_LOG", "").strip() in ("1", "true", "yes")
 
 
+_FILE_LOCK = Lock()
+_MAX_LOG_BYTES = 5_000_000
+
+
+def note(line: str) -> None:
+    """Write one line to stderr and, if a file is named, to that file.
+
+    The container's own log dies with the container: after a redeploy two
+    lines were left of everything recorded before it, so no picture of
+    what people use could ever build up. ``TRADINGVIEW_MCP_AUDIT_FILE``
+    names a file on storage that survives. Lines there carry a UTC time,
+    which the container log added by itself. At five megabytes the file
+    is moved aside to ``<name>.1``, replacing the previous one, so it
+    cannot fill a disk. A failure to write is swallowed: an audit line
+    is never worth failing a tool call for.
+    """
+    print(line, file=sys.stderr, flush=True)
+    path = os.environ.get("TRADINGVIEW_MCP_AUDIT_FILE", "").strip()
+    if not path:
+        return
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        with _FILE_LOCK:
+            try:
+                if os.path.getsize(path) > _MAX_LOG_BYTES:
+                    os.replace(path, path + ".1")
+            except OSError:
+                pass  # no file yet
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(f"{stamp} {line}\n")
+    except OSError:
+        pass
+
+
 def audit(tool: str, seconds: float, outcome: str) -> None:
     """One line per tool call, to stderr, where the container log keeps it.
 
@@ -77,5 +111,4 @@ def audit(tool: str, seconds: float, outcome: str) -> None:
     arguments. The proxy route in front of this has no access log of its
     own, because that log would have to contain the secret path.
     """
-    print(f"[audit] tool={tool} sec={seconds:.2f} outcome={outcome}",
-          file=sys.stderr, flush=True)
+    note(f"[audit] tool={tool} sec={seconds:.2f} outcome={outcome}")

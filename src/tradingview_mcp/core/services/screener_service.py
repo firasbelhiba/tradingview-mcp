@@ -10,6 +10,7 @@ batch fails. The MCP tool wrapper layer converts that to a structured error
 envelope so callers can distinguish "no matches today" from "upstream cliff".
 """
 from __future__ import annotations
+from tradingview_mcp.core.utils.rounding import keep_digits as round  # noqa: A001 - a small price must keep its digits
 
 import os
 import sys

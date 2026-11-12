@@ -1,4 +1,5 @@
 from __future__ import annotations
+from tradingview_mcp.core.utils.rounding import keep_digits as round  # noqa: A001 - a small price must keep its digits
 from typing import Dict, Optional, Tuple
 
 # Volume baseline. TradingView has no volume-SMA column: every volume ratio
@@ -69,6 +70,15 @@ def compute_metrics(indicators: Dict) -> Optional[Dict]:
         }
     except (KeyError, TypeError):
         return None
+
+
+def _price(value):
+    """A level, entry, stop or target: never rounded into a different price."""
+    if value is None:
+        return None
+    from tradingview_mcp.core.utils.rounding import round_price
+
+    return round_price(value)
 
 
 def _safe_round(value, decimals: int = 4):
@@ -1265,8 +1275,8 @@ def compute_trade_setup(indicators: Dict) -> Optional[Dict]:
         support_candidates.append(psar)
 
     # Deduplicate and sort
-    supports = sorted([x for x in set(_safe_round(s, 2) for s in support_candidates if s) if x is not None], reverse=True)[:3]
-    resistances = sorted([x for x in set(_safe_round(r, 2) for r in resistance_candidates if r) if x is not None])[:3]
+    supports = sorted([x for x in set(_price(s) for s in support_candidates if s) if x is not None], reverse=True)[:3]
+    resistances = sorted([x for x in set(_price(r) for r in resistance_candidates if r) if x is not None])[:3]
 
     # ── Entry Points ──────────────────────────────────────────────────────
 
@@ -1278,7 +1288,7 @@ def compute_trade_setup(indicators: Dict) -> Optional[Dict]:
     # Pullback entry: near EMA20 or nearest support
     pullback_entry = None
     if ema20 and ema20 < close:
-        pullback_entry = _safe_round(ema20, 2)
+        pullback_entry = _price(ema20)
     elif supports:
         pullback_entry = supports[0]
 
@@ -1296,7 +1306,7 @@ def compute_trade_setup(indicators: Dict) -> Optional[Dict]:
     # graded a trade nobody planned to take.)
 
     def _build_scenario(kind: str, raw_entry: float) -> Optional[Dict]:
-        entry = _safe_round(raw_entry, 2)
+        entry = _price(raw_entry)
         if not entry or entry <= 0:
             return None
 
@@ -1306,25 +1316,25 @@ def compute_trade_setup(indicators: Dict) -> Optional[Dict]:
         sup_below = [s for s in supports if s < entry]
         if sup_below:
             stop_candidates.append(sup_below[0] - 0.5 * atr)
-        stop = _safe_round(max(stop_candidates), 2)
+        stop = _price(max(stop_candidates))
         if stop is None or stop >= entry:
-            stop = _safe_round(entry - 1.0 * atr, 2)
+            stop = _price(entry - 1.0 * atr)
         if stop is None or stop >= entry or stop <= 0:
             return None
 
         stop_pct = ((entry - stop) / entry) * 100
         if stop_pct < 0.5:  # unrealistically tight — widen to 1 ATR
-            stop = _safe_round(entry - 1.0 * atr, 2)
+            stop = _price(entry - 1.0 * atr)
             if stop is None or stop >= entry or stop <= 0:
                 return None
             stop_pct = ((entry - stop) / entry) * 100
 
         # Targets must sit strictly ABOVE this scenario's entry.
         res_above = [r for r in resistances if r > entry]
-        target_1 = res_above[0] if res_above else _safe_round(entry + 1.5 * atr, 2)
-        target_2 = res_above[1] if len(res_above) >= 2 else _safe_round(entry + 3.0 * atr, 2)
+        target_1 = res_above[0] if res_above else _price(entry + 1.5 * atr)
+        target_2 = res_above[1] if len(res_above) >= 2 else _price(entry + 3.0 * atr)
         if target_1 and target_2 and target_2 <= target_1:
-            target_2 = _safe_round(entry + 3.0 * atr, 2)
+            target_2 = _price(entry + 3.0 * atr)
 
         risk = entry - stop
         rr_1 = _safe_round((target_1 - entry) / risk, 1) if target_1 else None
@@ -1602,7 +1612,7 @@ def compute_fibonacci_levels(
             price = swing_high - ratio * diff
         else:
             price = swing_low + ratio * diff
-        retracement[str(ratio)] = _safe_round(price, 2)
+        retracement[str(ratio)] = _price(price)
 
     extensions = {}
     for ratio in _FIB_EXTENSION_RATIOS:
@@ -1610,11 +1620,11 @@ def compute_fibonacci_levels(
             price = swing_high + (ratio - 1.0) * diff
         else:
             price = swing_low - (ratio - 1.0) * diff
-        extensions[str(ratio)] = _safe_round(price, 2)
+        extensions[str(ratio)] = _price(price)
 
     return {
-        "swing_high": _safe_round(swing_high, 2),
-        "swing_low": _safe_round(swing_low, 2),
+        "swing_high": _price(swing_high),
+        "swing_low": _price(swing_low),
         "trend": trend,
         "retracement_levels": retracement,
         "extension_levels": extensions,

@@ -64,7 +64,7 @@ Backtest an RSI strategy on BTC on the daily timeframe
 
 > This is a fork of [atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)
 > (MIT, © 2025 Ahmet Taner Atila). Everything below is added on top of the
-> upstream tools documented further down. **80 tools, 1,291 tests.**
+> upstream tools documented further down. **80 tools, 1,351 tests.**
 
 **New here? Start by asking your AI these three things:**
 
@@ -232,6 +232,14 @@ tradingview-mcp streamable-http --host 0.0.0.0 --port 8000 \
   The budget is one for the whole process, not per caller: the server
   cannot tell callers apart, so it bounds the total rather than being
   fair between them.
+- **Keep the usage log and back the data up.** A container's log dies
+  with the container, so `TRADINGVIEW_MCP_AUDIT_FILE=/data/audit.log`
+  also appends each audit line, with a UTC time, to a file on storage
+  that survives a redeploy. It is moved aside at 5 MB.
+  `scripts/backup_data.py DATA_DIR BACKUP_DIR` makes a dated, verified
+  copy of the wallets and alerts using SQLite's backup API and keeps the
+  newest 14; run it from cron. On the same disk it guards against
+  mistakes, not against losing the machine.
 - **What a caller can create is capped**, with or without those
   switches: 25 wallets, 50 open positions and 50 resting orders per
   wallet, 200 alerts. Each has a `TRADINGVIEW_MCP_MAX_...` variable.

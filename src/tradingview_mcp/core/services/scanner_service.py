@@ -10,6 +10,7 @@ structured error envelope. Returning ``[]`` on total failure (the historical
 behavior) hid rate-limit cliffs as "no results today".
 """
 from __future__ import annotations
+from tradingview_mcp.core.utils.rounding import keep_digits as round  # noqa: A001 - a small price must keep its digits
 
 import sys
 import time as _time

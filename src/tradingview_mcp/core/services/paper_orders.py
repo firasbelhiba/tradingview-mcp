@@ -27,6 +27,7 @@ false:
     would quietly turn "wait for support" into "buy now".
 """
 from __future__ import annotations
+from tradingview_mcp.core.utils.rounding import keep_digits as round  # noqa: A001 - a small price must keep its digits
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple

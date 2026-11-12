@@ -25,6 +25,7 @@ cash-settled from the wallet; futures allow shorts and leverage, post margin,
 pay funding and can be liquidated.
 """
 from __future__ import annotations
+from tradingview_mcp.core.utils.rounding import keep_digits as round  # noqa: A001 - a small price must keep its digits
 
 from typing import Any, Dict, List, Optional, Tuple
 

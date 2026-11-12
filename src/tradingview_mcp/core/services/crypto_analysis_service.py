@@ -22,6 +22,7 @@ All public functions return plain dicts / lists and are independently testable
 without the MCP layer.
 """
 from __future__ import annotations
+from tradingview_mcp.core.utils.rounding import keep_digits as round  # noqa: A001 - a small price must keep its digits
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Sequence

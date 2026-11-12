@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **A usage log that outlives the container, and a backup script.**
+  After a redeploy two lines were left of everything the audit log had
+  recorded. `TRADINGVIEW_MCP_AUDIT_FILE` names a file the same lines are
+  appended to, timestamped, rotated at 5 MB with one spare.
+  `scripts/backup_data.py` copies the data directory into a dated folder
+  with SQLite's backup API (a plain copy of a WAL-mode database can be
+  torn, and misses rows still in the write-ahead log), runs
+  `integrity_check` on each copy, renames the folder into place only when
+  complete, and keeps the newest 14. Standard library only.
+- **`docs/install-on-your-pc.md`**: a five-step install for someone who is
+  not a developer. The README's install command named no branch, and the
+  repository's default branch is upstream's, so it installed the original
+  39 tools. The tested command runs this branch from its archive with no
+  git needed: 54s to build on first run, 5s to answer afterwards.
 - **`paper_wallet_widget` is now a real MCP App** (experimental). The first
   version embedded an HTML resource in the tool result, which no host
   draws. A host looks for three things and the tool now provides them:
@@ -72,6 +86,23 @@ All notable changes to this project will be documented in this file.
   case — the opposite bias to a stop, and the results say so.
 
 ### Fixed
+- **A price far below a dollar was rounded away.** Prices were rounded to
+  a fixed four or six decimals, and trade setups and Fibonacci levels to
+  two. Measured on PEPE and SHIB: `coin_analysis` returned 23 price fields
+  as 0.0 and the price as 0.000005; `multi_timeframe_analysis` gave 0.0
+  for the price on every timeframe; every Fibonacci level was 0.0; and
+  `crypto_trade_plan` refused with "ATR unavailable" although ATR was
+  there, because its entry had rounded to nothing. Two decimals was wrong
+  well above meme coins: a DOGE entry of 0.065988 became 0.07 and its stop
+  0.06. Rounding now keeps five significant digits whenever the fixed
+  precision would leave fewer than three. Across both coins the zeros fell
+  from 104 to 5, and those five are the liquidation price of a 1x long,
+  which really is zero. Every number the old rounding handled is returned
+  exactly as before: no existing test changed.
+- **`"BTC, ETH, SOL"` was refused as not a list** by `crypto_watchlist`,
+  `correlation`, `supertrend_scan` and `donchian_breakout_scan`, with a
+  pydantic dump. One string is now split on commas, semicolons or spaces.
+  The schema still says array of strings.
 - **Naming a coin by its name analysed something else.** `coin_analysis`
   with `BTC` returned `LSE:BTC`, a London-listed stock at 1.30, even with
   `exchange="BINANCE"`; `ETH` gave a Milan listing and `SOL` an Australian

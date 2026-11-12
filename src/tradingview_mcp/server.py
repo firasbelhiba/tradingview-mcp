@@ -17,7 +17,7 @@ import os
 import sys
 from typing import Annotated, Optional
 
-from pydantic import Field
+from pydantic import BeforeValidator, Field
 
 # Eagerly import pandas on the main thread. Several tools route through
 # tradingview_screener's bare Query(), whose first call imports pandas lazily —
@@ -179,6 +179,24 @@ try:
     TRADINGVIEW_SCREENER_AVAILABLE = True
 except ImportError:
     TRADINGVIEW_SCREENER_AVAILABLE = False
+
+
+# ── A list of symbols, however it was typed ──────────────────────────────────
+#
+# "BTC, ETH, SOL" is how a person lists coins, and it is what an assistant
+# passes along when it copies the sentence. It was rejected with a pydantic
+# dump: "Input should be a valid list [type=list_type, ...]". The schema
+# still says array of strings; one string is simply split first.
+
+def _split_symbols(value):
+    if isinstance(value, str):
+        import re
+
+        return [part for part in re.split(r"[,;\s]+", value.strip()) if part]
+    return value
+
+
+SymbolList = Annotated[list[str], BeforeValidator(_split_symbols)]
 
 
 # ── MCP server instance ────────────────────────────────────────────────────────
@@ -1377,7 +1395,7 @@ async def crypto_fibonacci_retracement(
 
 @mcp.tool(annotations=ToolAnnotations(title="Crypto Watchlist", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
 async def crypto_watchlist(
-    symbols: list[str],
+    symbols: SymbolList,
     exchange: str = "KUCOIN",
     timeframe: str = "4h",
 ) -> dict:
@@ -1450,7 +1468,7 @@ async def rsi_divergence(
 async def supertrend_scan(
     exchange: str = "KUCOIN",
     timeframe: str = "4h",
-    symbols: Optional[list[str]] = None,
+    symbols: Optional[SymbolList] = None,
     max_symbols: int = 15,
     flip_within: int = 3,
     atr_period: int = 10,
@@ -1492,7 +1510,7 @@ async def supertrend_scan(
 async def donchian_breakout_scan(
     exchange: str = "KUCOIN",
     timeframe: str = "1D",
-    symbols: Optional[list[str]] = None,
+    symbols: Optional[SymbolList] = None,
     period: int = 20,
     max_symbols: int = 15,
 ) -> dict:
@@ -1837,7 +1855,7 @@ async def narrative_rotation(
 
 @mcp.tool(annotations=ToolAnnotations(title="BTC Correlation and Beta", readOnlyHint=True, destructiveHint=False, openWorldHint=True))
 async def correlation(
-    symbols: list[str],
+    symbols: SymbolList,
     benchmark: str = "BTCUSDT",
     timeframe: str = "4h",
     lookback: int = 180,
@@ -2791,8 +2809,8 @@ async def paper_wallet_widget(include_closed: int = 0, wallet: Optional[str] = N
     # stays true, so a hosted deployment records what each one claims.
     from tradingview_mcp.core import limits as _limits
     if _limits.audit_enabled():
-        print(f"[apps] tool=paper_wallet_widget client={apps.client_name(ctx)} "
-              f"says_it_draws={draws}", file=sys.stderr, flush=True)
+        _limits.note(f"[apps] tool=paper_wallet_widget "
+                     f"client={apps.client_name(ctx)} says_it_draws={draws}")
     shown = wallet_app.data_for_view(status, name, draws)
     return CallToolResult(
         content=[TextContent(
