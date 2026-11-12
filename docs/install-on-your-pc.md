@@ -103,8 +103,13 @@ and quit Claude with **Cmd + Q** instead of the tray icon.
 
 ## Getting updates
 
-New features arrive often. To get them: quit Claude completely, run this in
-PowerShell, and open Claude again. The next start takes about a minute.
+You do not have to do anything. When there is a new version, the next time
+Claude starts it downloads and rebuilds by itself, which takes about a
+minute. If the tools are missing right after such a start, quit Claude and
+open it once more.
+
+To force a fresh download, quit Claude completely, run this in PowerShell,
+and open Claude again:
 
 ```powershell
 uv cache clean
