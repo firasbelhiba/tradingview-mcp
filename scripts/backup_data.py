@@ -8,7 +8,8 @@ there was one copy of each. A wiped wallet, a bad migration or a mistaken
     python3 scripts/backup_data.py DATA_DIR BACKUP_DIR [--keep 14]
 
 Makes ``BACKUP_DIR/YYYY-MM-DD_HHMMSS/`` holding a copy of every file in
-DATA_DIR, then deletes dated folders beyond the newest ``--keep``.
+DATA_DIR at any depth, then deletes dated folders beyond the newest
+``--keep``.
 
 Databases are copied with SQLite's own backup API, not ``cp``: the files are
 in WAL mode, and a plain copy taken while the server is writing can be torn.
@@ -73,15 +74,21 @@ def backup(data_dir: Path, backup_dir: Path, keep: int = 14, now=None) -> Path:
     working.mkdir(parents=True)
     copied = []
     try:
-        for source in sorted(data_dir.iterdir()):
-            if not source.is_file() or source.name.endswith(_SKIP_SUFFIXES):
+        # Every file, at any depth: each person's space is a folder of its
+        # own under spaces/, and a backup of the top level alone would have
+        # kept the owner's wallet and nobody else's.
+        for source in sorted(p for p in data_dir.rglob("*") if p.is_file()):
+            if source.name.endswith(_SKIP_SUFFIXES) or source.name.endswith(".tmp"):
                 continue
+            relative = source.relative_to(data_dir)
+            destination = working / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
             if source.suffix in _DB_SUFFIXES:
-                tables = copy_database(source, working / source.name)
-                copied.append(f"{source.name} ({tables} tables)")
+                tables = copy_database(source, destination)
+                copied.append(f"{relative.as_posix()} ({tables} tables)")
             else:
-                shutil.copy2(source, working / source.name)
-                copied.append(source.name)
+                shutil.copy2(source, destination)
+                copied.append(relative.as_posix())
         if not copied:
             raise RuntimeError(f"nothing to back up in {data_dir}")
         # Renamed only once complete, so a folder with a date for a name is

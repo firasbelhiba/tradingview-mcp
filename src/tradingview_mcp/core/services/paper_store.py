@@ -96,11 +96,16 @@ def active_wallet() -> str:
 
 
 def wallet_dir() -> Path:
+    """Where this call's wallets live: the owner's directory, or a space's."""
+    from tradingview_mcp.core.spaces import scoped
+
     explicit = os.environ.get("TRADINGVIEW_MCP_PAPER_DB")
     if explicit:
-        return Path(explicit).expanduser().parent
+        return scoped(Path(explicit).expanduser().parent)
     data_dir = os.environ.get("TRADINGVIEW_MCP_DATA_DIR")
-    return Path(data_dir).expanduser() if data_dir else Path.home() / ".tradingview-mcp"
+    return scoped(
+        Path(data_dir).expanduser() if data_dir else Path.home() / ".tradingview-mcp"
+    )
 
 
 def list_wallet_names() -> List[str]:
@@ -126,7 +131,9 @@ def db_path(name: Optional[str] = _UNSET) -> Path:
     chosen = _WALLET_NAME.get() if name is _UNSET else normalise_wallet_name(name)
     explicit = os.environ.get("TRADINGVIEW_MCP_PAPER_DB")
     if explicit:
-        path = Path(explicit).expanduser()
+        # The explicit file is the owner's; inside a space the same file
+        # name is used in that space's own directory.
+        path = wallet_dir() / Path(explicit).name
         if chosen is None:
             return path
         return path.with_name(f"paper-{chosen}.sqlite3")

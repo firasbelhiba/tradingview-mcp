@@ -64,7 +64,7 @@ Backtest an RSI strategy on BTC on the daily timeframe
 
 > This is a fork of [atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)
 > (MIT, © 2025 Ahmet Taner Atila). Everything below is added on top of the
-> upstream tools documented further down. **80 tools, 1,351 tests.**
+> upstream tools documented further down. **80 tools, 1379 tests.**
 
 **New here? Start by asking your AI these three things:**
 
@@ -232,6 +232,26 @@ tradingview-mcp streamable-http --host 0.0.0.0 --port 8000 \
   The budget is one for the whole process, not per caller: the server
   cannot tell callers apart, so it bounds the total rather than being
   fair between them.
+- **Give each person their own wallets and alerts.** By default everyone
+  who reaches the server shares one data directory, so a friend asking
+  for "my wallet" sees yours. Create a space per person:
+
+  ```bash
+  python -m tradingview_mcp.core.spaces add ahmed
+  ```
+
+  It prints a path such as `/u/<random key>/mcp`. Their address is yours
+  with that in place of `/mcp`. Everything they do lands in
+  `DATA_DIR/spaces/ahmed/`, and the plain `/mcp` address stays the
+  owner's. `list` shows every space and `remove NAME` closes a link at
+  once while keeping the data; neither needs a restart. The key is the
+  only thing separating one person from another, so it is a secret. The
+  audit line gains `space=ahmed`: the operator can see which space made
+  a call, by name, and still never its arguments.
+- **Offer only the crypto tools.** `TRADINGVIEW_MCP_TOOLSET=crypto` leaves
+  out the 18 stock and exchange-futures tools, and the three news tools
+  for as long as no `MARKETAUX_API_TOKEN` is set, since without it they
+  can only answer "Unavailable". 59 tools instead of 80.
 - **Keep the usage log and back the data up.** A container's log dies
   with the container, so `TRADINGVIEW_MCP_AUDIT_FILE=/data/audit.log`
   also appends each audit line, with a UTC time, to a file on storage

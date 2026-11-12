@@ -35,12 +35,16 @@ TRIGGERED = "triggered"
 
 
 def db_path() -> Path:
+    """This call's alerts: the owner's file, or the one in its space."""
+    from tradingview_mcp.core.spaces import scoped
+
     explicit = os.environ.get("TRADINGVIEW_MCP_ALERTS_DB")
     if explicit:
-        return Path(explicit).expanduser()
+        path = Path(explicit).expanduser()
+        return scoped(path.parent) / path.name
     data_dir = os.environ.get("TRADINGVIEW_MCP_DATA_DIR")
     base = Path(data_dir).expanduser() if data_dir else Path.home() / ".tradingview-mcp"
-    return base / "alerts.sqlite3"
+    return scoped(base) / "alerts.sqlite3"
 
 
 def _connect() -> sqlite3.Connection:

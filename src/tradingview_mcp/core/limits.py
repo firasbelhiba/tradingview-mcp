@@ -111,4 +111,10 @@ def audit(tool: str, seconds: float, outcome: str) -> None:
     arguments. The proxy route in front of this has no access log of its
     own, because that log would have to contain the secret path.
     """
-    note(f"[audit] tool={tool} sec={seconds:.2f} outcome={outcome}")
+    from tradingview_mcp.core.spaces import CURRENT
+
+    # On a shared server the operator can see which space a call came
+    # from - its name, never its key, and still never the arguments.
+    space = CURRENT.get()
+    who = f" space={space}" if space else ""
+    note(f"[audit] tool={tool} sec={seconds:.2f} outcome={outcome}{who}")

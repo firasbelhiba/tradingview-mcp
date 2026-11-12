@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **A private space per person on a shared server.** A hosted server had
+  one data directory, so everyone holding its address shared one wallet
+  and one list of alerts: a friend asking for "my wallet" was shown the
+  owner's open position and could close it.
+  `python -m tradingview_mcp.core.spaces add NAME` creates a space and
+  prints a link path, `/u/<random key>/mcp`. Requests on that link read
+  and write `DATA_DIR/spaces/NAME/`; the plain `/mcp` address stays the
+  owner's and a local stdio install is untouched. The space is read from
+  the request that carried each call, so a session opened on one link
+  cannot be used from another, and a client-supplied space header is
+  stripped. An unknown key is a plain 404. The registry is re-read when it
+  changes, so adding or removing a person needs no restart, and removing
+  one keeps their data. Checked over real HTTP against a running server:
+  three parties, a forged header, a replayed session id, a made-up key
+  and a removal. Wallet caps apply per space. The audit line names the
+  space, never the key. `scripts/backup_data.py` now copies sub-folders,
+  or it would have kept the owner's wallet and nobody else's.
+- **`TRADINGVIEW_MCP_TOOLSET=crypto`** offers 59 tools instead of 80: it
+  leaves out the 18 stock and exchange-futures tools, and the three news
+  tools while no Marketaux key is configured. Unset, nothing changes.
 - **A usage log that outlives the container, and a backup script.**
   After a redeploy two lines were left of everything the audit log had
   recorded. `TRADINGVIEW_MCP_AUDIT_FILE` names a file the same lines are

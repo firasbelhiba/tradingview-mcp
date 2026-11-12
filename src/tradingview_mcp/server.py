@@ -3223,6 +3223,105 @@ def _guard_tools() -> int:
 _GUARDED_TOOL_COUNT = _guard_tools()
 
 
+# ---------------------------------------------------------------------------
+# Whose call is this?
+#
+# Over HTTP several people can share one server. The link a request arrived on
+# decides its space (see core/spaces.py), and the wallet and alert stores
+# follow the space. Read from the request that carried this very call, so a
+# session cannot be opened on one link and used from another. Applied last, so
+# it is outermost and the audit line above can name the space. Over stdio
+# there is no request, no space, and nothing changes.
+# ---------------------------------------------------------------------------
+def _current_space():
+    from tradingview_mcp.core import spaces
+
+    try:
+        request = mcp.get_context().request_context.request
+    except Exception:  # noqa: BLE001 - outside a request, or not HTTP
+        return None
+    return spaces.from_request(request) if request is not None else None
+
+
+def _scope_tools() -> int:
+    import functools
+
+    from tradingview_mcp.core import spaces
+
+    scoped = 0
+    for _tool in mcp._tool_manager.list_tools():
+        _inner = _tool.fn
+
+        @functools.wraps(_inner)
+        async def _in_space(*args, __inner=_inner, **kwargs):
+            token = spaces.CURRENT.set(_current_space())
+            try:
+                return await __inner(*args, **kwargs)
+            finally:
+                spaces.CURRENT.reset(token)
+
+        _tool.fn = _in_space
+        scoped += 1
+    return scoped
+
+
+_SCOPED_TOOL_COUNT = _scope_tools()
+
+
+# ---------------------------------------------------------------------------
+# Which tools to offer.
+#
+# The full set serves stocks in a dozen markets and CME futures. A server put
+# up for crypto traders was advertising 18 tools none of them would use, and
+# three more that can only answer "Unavailable" until a news key is set - all
+# of it read by the assistant on every conversation. TRADINGVIEW_MCP_TOOLSET
+# =crypto leaves those out. Unset, every tool is offered, as before.
+# ---------------------------------------------------------------------------
+_NON_CRYPTO_PREFIXES = ("egx_", "stock_", "futures_")
+_NON_CRYPTO_NAMES = frozenset({"yahoo_price"})
+_NEEDS_NEWS_KEY = frozenset({"market_sentiment", "financial_news", "combined_analysis"})
+
+_CRYPTO_SUMMARY = (
+    "Crypto market tools backed by TradingView, Binance and OKX public data: "
+    "market overview, single-coin analysis, trade plans, scans, positioning "
+    "and funding, lead traders, alerts, and a simulated paper-trading wallet. "
+    "A coin can be named plainly (BTC, sol): it is read as its USDT pair. "
+    "If someone is new or unsure where to begin, call get_started."
+)
+
+
+def hidden_tools(toolset: str, has_news_key: bool, names) -> set:
+    """Which of ``names`` a tool set leaves out."""
+    if (toolset or "").strip().lower() != "crypto":
+        return set()
+    hidden = {
+        name for name in names
+        if name.startswith(_NON_CRYPTO_PREFIXES) or name in _NON_CRYPTO_NAMES
+    }
+    if not has_news_key:
+        hidden |= _NEEDS_NEWS_KEY & set(names)
+    return hidden
+
+
+def _apply_toolset() -> int:
+    toolset = os.environ.get("TRADINGVIEW_MCP_TOOLSET", "")
+    names = [t.name for t in mcp._tool_manager.list_tools()]
+    hidden = hidden_tools(
+        toolset, bool(os.environ.get("MARKETAUX_API_TOKEN", "").strip()), names
+    )
+    for name in sorted(hidden):
+        mcp._tool_manager.remove_tool(name)
+    if hidden:
+        # The opening paragraph lists every stock market served; with those
+        # tools gone it would describe a server that is not there.
+        rest = (mcp._mcp_server.instructions or "").split("\n\n", 1)
+        mcp._mcp_server.instructions = "\n\n".join([_CRYPTO_SUMMARY, *rest[1:]])
+    return len(hidden)
+
+
+_HIDDEN_TOOL_COUNT = _apply_toolset()
+
+
 # ── Transport security (streamable-http) ──────────────────────────────────────
 
 _LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
@@ -3363,7 +3462,29 @@ def main() -> None:
         mcp.settings.transport_security = security
         if warning:
             print(f"[tradingview_mcp] {warning}", file=sys.stderr, flush=True)
-        mcp.run(transport="streamable-http")
+        _serve_http()
+
+
+def _serve_http() -> None:
+    """Serve over streamable-http, with per-person spaces routed by link.
+
+    The same thing ``mcp.run(transport="streamable-http")`` does, with one
+    layer added in front: ``/u/<key>/mcp`` is recognised, checked against the
+    registry and passed on as ``/mcp`` marked with its space.
+    """
+    import anyio
+    import uvicorn
+
+    from tradingview_mcp.core.spaces import SpaceRouter
+
+    app = SpaceRouter(mcp.streamable_http_app())
+    config = uvicorn.Config(
+        app,
+        host=mcp.settings.host,
+        port=mcp.settings.port,
+        log_level=mcp.settings.log_level.lower(),
+    )
+    anyio.run(uvicorn.Server(config).serve)
 
 
 if __name__ == "__main__":
