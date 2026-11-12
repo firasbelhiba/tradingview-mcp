@@ -31,7 +31,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from tradingview_mcp.core.errors import ErrorCode, make_error
 from tradingview_mcp.core.services.copytrading_service import (
+    HIDDEN_NOTE,
     INSTRUMENT_TYPES,
+    _HIDDEN_CODE,
     _f,
     _get,
     _rows,
@@ -274,6 +276,17 @@ def get_lead_trader_trades(
         truncated = True
 
     if not collected:
+        if error and _HIDDEN_CODE in error:
+            # OKX words this "This futures lead trader doesn't exist". They
+            # do: the profile tool reads their aggregates. What is withheld is
+            # the trade history, and asking again will not change that.
+            return make_error(
+                ErrorCode.NO_DATA,
+                "This trader's trade history is hidden. " + HIDDEN_NOTE,
+                unique_code=code,
+                trade_history_state="hidden",
+                retryable=False,
+            )
         if error:
             return make_error(
                 ErrorCode.UPSTREAM_ERROR, f"OKX: {error}",

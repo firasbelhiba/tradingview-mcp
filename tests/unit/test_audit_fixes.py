@@ -460,3 +460,33 @@ def test_a_failed_stablecoin_lookup_is_not_repeated_on_the_next_call(monkeypatch
     for _ in range(4):
         assert bubbles.crypto_bubbles(10)["count"] == 10
     assert seen["stables"] == 1
+
+
+# ── 2b. Found while verifying: the trades tool repeated OKX's wording ─────────
+
+def test_a_hidden_history_is_not_reported_as_a_trader_who_does_not_exist(
+        monkeypatch):
+    """OKX answers 59269 "This futures lead trader doesn't exist" for a
+    trader the profile tool can read. It was passed on as a retryable
+    upstream error, so the reader retried something that cannot change."""
+    def refuse(path):
+        raise RuntimeError(
+            "OKX error 59269: This futures lead trader doesn't exist")
+
+    monkeypatch.setattr(trades, "_get", refuse)
+    out = trades.get_lead_trader_trades("C")
+    assert out["error"]["code"] == "NO_DATA"
+    assert out["error"]["retryable"] is False
+    assert out["error"]["trade_history_state"] == "hidden"
+    assert "hidden" in out["error"]["message"]
+    assert "doesn't exist" not in out["error"]["message"]
+
+
+def test_any_other_okx_failure_is_still_worth_retrying(monkeypatch):
+    def refuse(path):
+        raise RuntimeError("OKX error 50011: Too Many Requests")
+
+    monkeypatch.setattr(trades, "_get", refuse)
+    out = trades.get_lead_trader_trades("C")
+    assert out["error"]["code"] == "UPSTREAM_ERROR"
+    assert out["error"]["retryable"] is True

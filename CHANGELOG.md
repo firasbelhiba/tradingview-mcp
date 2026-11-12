@@ -51,7 +51,11 @@ All notable changes to this project will be documented in this file.
   them are, and counts them in `open_positions_instrument_hidden` when
   only some are. `paper_copy_trader` refuses the first case with the real
   reason instead of "not a USDT pair this wallet can price", and skips
-  only the blanked rows in the second.
+  only the blanked rows in the second. `lead_trader_trades` no longer
+  repeats OKX's "this lead trader doesn't exist" for a trader whose
+  history is merely hidden: it returns `NO_DATA` with
+  `trade_history_state: hidden` and `retryable: false`, where it used to
+  return a retryable `UPSTREAM_ERROR`.
 - **`crypto_bubbles` failed on 2 calls in 5 from a hosted server.**
   CoinGecko's free tier answers 429 to a datacenter address straight
   after another CoinGecko-backed tool has run, and works seconds later.
