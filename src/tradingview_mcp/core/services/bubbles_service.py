@@ -43,6 +43,15 @@ _TIMEOUT = 15
 _TTL = 60.0
 _STABLE_TTL = 3600.0
 _MAX_LIMIT = 100
+# One request serves every limit. CoinGecko counts requests, not rows, so
+# asking for the full page costs the same as asking for ten - and a board
+# of 10, 30 and 50 then shares one answer instead of spending three.
+_PAGE = 250
+_MARKETS_KEY = "markets"
+# How old a board may be and still be shown when a refresh is refused.
+_STALE_OK = 900.0
+# How long a failed stablecoin lookup is remembered before asking again.
+_STABLE_RETRY = 120.0
 
 _cache: Dict[str, tuple] = {}
 _cache_lock = Lock()
@@ -99,6 +108,13 @@ def _stablecoin_symbols() -> set:
         if not symbols:
             raise RuntimeError("empty stablecoin category")
     except Exception:  # noqa: BLE001
+        # Remember the failure for a couple of minutes. Asking again on
+        # every call spends the allowance the board itself needs, which is
+        # how one throttled lookup turned into a throttled tool.
+        with _cache_lock:
+            _cache[key] = (
+                time.time() - _STABLE_TTL + _STABLE_RETRY, set(_STABLES)
+            )
         return set(_STABLES)
     symbols |= _STABLES
     with _cache_lock:
@@ -113,15 +129,17 @@ _BACKOFF = (2.5, 6.0)
 _sleep = time.sleep
 
 
-def _get_with_retry(url: str) -> Any:
+def _get_with_retry(url: str, patient: bool = True) -> Any:
     """GET JSON from CoinGecko, waiting out a 429 rather than surfacing it.
 
     A datacenter address shares CoinGecko's free allowance with everything
     else on it, so a throttle here is usually a matter of seconds. Only a
     429 is retried: any other failure is a different problem and waiting
-    will not fix it.
+    will not fix it. ``patient=False`` makes one attempt, for the caller
+    that has an older answer to fall back on and no reason to wait.
     """
-    for attempt in range(len(_BACKOFF) + 1):
+    waits = _BACKOFF if patient else ()
+    for attempt in range(len(waits) + 1):
         req = urllib.request.Request(
             url, headers={"User-Agent": _UA, "Accept": "application/json"}
         )
@@ -129,29 +147,52 @@ def _get_with_retry(url: str) -> Any:
             with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
-            if exc.code != 429 or attempt == len(_BACKOFF):
+            if exc.code != 429 or attempt == len(waits):
                 raise
-            _sleep(_BACKOFF[attempt])
+            _sleep(waits[attempt])
 
 
 def _fetch(limit: int) -> List[dict]:
-    key = f"markets:{limit}"
-    with _cache_lock:
-        hit = _cache.get(key)
-    if hit and (time.time() - hit[0]) <= _TTL:
-        return hit[1]
+    """The top ``limit`` coins, from one shared page.
 
+    Measured on the hosted server after the retry went in: five boards of
+    different sizes back to back still failed three times, because each size
+    was its own cache entry and so its own request. Every size now reads the
+    same page, fetched at most once a minute.
+
+    When a refresh is refused and an older page exists, the older page is
+    returned rather than an error - `_data_age` lets the caller say how old
+    it is, so a stale board is never passed off as a live one.
+    """
+    with _cache_lock:
+        hit = _cache.get(_MARKETS_KEY)
+    if hit and (time.time() - hit[0]) <= _TTL:
+        return hit[1][:limit]
+
+    usable = bool(hit) and (time.time() - hit[0]) <= _STALE_OK
     url = (
-        f"{_URL}?vs_currency=usd&order=market_cap_desc&per_page={limit}"
+        f"{_URL}?vs_currency=usd&order=market_cap_desc&per_page={_PAGE}"
         "&page=1&sparkline=false"
         "&price_change_percentage=1h%2C24h%2C7d%2C30d%2C1y"
     )
-    rows = _get_with_retry(url)
-    if not isinstance(rows, list):
-        raise RuntimeError("CoinGecko returned an unexpected shape")
+    try:
+        rows = _get_with_retry(url, patient=not usable)
+        if not isinstance(rows, list):
+            raise RuntimeError("CoinGecko returned an unexpected shape")
+    except Exception:  # noqa: BLE001
+        if usable:
+            return hit[1][:limit]
+        raise
     with _cache_lock:
-        _cache[key] = (time.time(), rows)
-    return rows
+        _cache[_MARKETS_KEY] = (time.time(), rows)
+    return rows[:limit]
+
+
+def _data_age() -> Optional[float]:
+    """Seconds since the page behind the last answer was fetched."""
+    with _cache_lock:
+        hit = _cache.get(_MARKETS_KEY)
+    return None if not hit else max(0.0, time.time() - hit[0])
 
 
 def _row(raw: dict) -> dict:
@@ -208,8 +249,10 @@ def crypto_bubbles(limit: int = 30, window: str = "24h",
     # enough: a live top-60 held twelve stablecoins, because they cluster at
     # the large-cap end where the buffer is thinnest. Half again plus ten
     # covers that, and CoinGecko charges the same for one page either way.
+    # Capped at the page, not at the limit: capping at 100 meant a board of
+    # 100 came back about a dozen short.
     want = (
-        min(_MAX_LIMIT, int(limit * 1.5) + 10)
+        min(_PAGE, int(limit * 1.5) + 10)
         if not include_stablecoins else limit
     )
     try:
@@ -229,6 +272,7 @@ def crypto_bubbles(limit: int = 30, window: str = "24h",
             f"CoinGecko unreachable: {str(exc)[:100]}", retryable=True,
         )
 
+    age = _data_age()
     rows = [_row(r) for r in raw]
     removed = []
     if not include_stablecoins:
@@ -282,6 +326,12 @@ def crypto_bubbles(limit: int = 30, window: str = "24h",
         ),
         "stablecoins_removed": removed or None,
         "source": "CoinGecko public markets endpoint (no key), cached 60s",
+        "data_age_s": None if age is None else round(age),
+        "stale": (
+            f"CoinGecko refused a refresh, so these figures are "
+            f"{round(age)}s old rather than live. Say so when showing them."
+            if age is not None and age > _TTL else None
+        ),
         "measures": (
             "change_pct is PRICE change, not market-cap change. A coin that "
             "unlocked supply can fall in price while its cap holds. Ranking "

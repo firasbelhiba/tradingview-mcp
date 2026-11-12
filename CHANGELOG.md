@@ -56,8 +56,17 @@ All notable changes to this project will be documented in this file.
   CoinGecko's free tier answers 429 to a datacenter address straight
   after another CoinGecko-backed tool has run, and works seconds later.
   A 429 is now retried after 2.5s and 6s before being surfaced; any other
-  status is not retried. `bitcoin_market_pulse` caches its two CoinGecko
-  requests for 60s so it stops spending the allowance the next tool needs.
+  status is not retried. That alone was measured and was not enough: five
+  boards of different sizes back to back still failed three times, because
+  each size was its own cache entry and so its own request. Every size now
+  reads one shared page fetched at most once a minute, and when a refresh
+  is refused a page up to 15 minutes old is shown with `data_age_s` and a
+  `stale` note instead of an error. A failed stablecoin lookup is
+  remembered for two minutes rather than repeated on every call, and a
+  board of 100 now returns 100 (the over-fetch was capped at 100, so the
+  stablecoins came out of it). `bitcoin_market_pulse` caches its two
+  CoinGecko requests for 60s so it stops spending the allowance the next
+  tool needs.
 - **`--host 0.0.0.0` refused every request it received.** The MCP SDK enables
   DNS-rebinding protection whenever `FastMCP` is constructed with a localhost
   host, and `server.py` constructs it at import time — before `--host` is

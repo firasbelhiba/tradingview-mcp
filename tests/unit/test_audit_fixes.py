@@ -363,3 +363,100 @@ def test_the_bitcoin_pulse_asks_once_a_minute_not_once_a_call(monkeypatch):
     pulse._http_get_json("https://example.invalid/a")
     pulse._http_get_json("https://example.invalid/b")
     assert len(calls) == 2, "the repeat of a is served from memory"
+
+
+# ── 4b. The retry was not enough, measured after it shipped ───────────────────
+#
+# Five boards of different sizes back to back still failed three times on the
+# hosted server: each size was its own cache entry, so its own request.
+
+def _coin(rank, symbol=None):
+    row = {"market_cap_rank": rank, "symbol": symbol or f"c{rank}",
+           "name": f"Coin {rank}", "current_price": 1.0,
+           "market_cap": 1_000_000 - rank, "total_volume": 10.0, "image": None}
+    for field in bubbles.WINDOWS.values():
+        row[field] = 1.0
+    return row
+
+
+def _coingecko(monkeypatch, refuse_markets=lambda n: False, stable_fails=False):
+    """A CoinGecko that counts what it is asked. -> the counters."""
+    seen = {"markets": 0, "stables": 0, "slept": []}
+    page = [_coin(i) for i in range(1, 251)]
+
+    def fake(req, timeout=None):
+        if "category=stablecoins" in req.full_url:
+            seen["stables"] += 1
+            if stable_fails:
+                raise urllib.error.HTTPError("u", 429, "x", {}, None)
+            return _Resp([{"symbol": "usdt"}])
+        seen["markets"] += 1
+        if refuse_markets(seen["markets"]):
+            raise urllib.error.HTTPError("u", 429, "x", {}, None)
+        return _Resp(page)
+
+    monkeypatch.setattr(bubbles.urllib.request, "urlopen", fake)
+    monkeypatch.setattr(bubbles, "_sleep", lambda s: seen["slept"].append(s))
+    return seen
+
+
+def test_boards_of_every_size_share_one_request(monkeypatch):
+    seen = _coingecko(monkeypatch)
+    for limit in (10, 30, 50, 11, 12):
+        assert bubbles.crypto_bubbles(limit)["count"] == limit
+    assert seen["markets"] == 1, "CoinGecko counts requests, not rows"
+    assert seen["stables"] == 1
+
+
+def test_a_board_of_a_hundred_is_a_hundred(monkeypatch):
+    """Capping the over-fetch at 100 meant the stablecoins came out of the
+    hundred and nothing replaced them."""
+    seen = _coingecko(monkeypatch)
+    page_with_stables = [_coin(i, "usdt" if i % 10 == 0 else None)
+                         for i in range(1, 251)]
+    monkeypatch.setattr(bubbles.urllib.request, "urlopen",
+                        lambda req, timeout=None: _Resp(
+                            [{"symbol": "usdt"}]
+                            if "category=stablecoins" in req.full_url
+                            else page_with_stables))
+    out = bubbles.crypto_bubbles(100)
+    assert out["count"] == 100
+    assert seen["slept"] == []
+
+
+def test_a_refused_refresh_shows_the_older_board_and_says_how_old(monkeypatch):
+    seen = _coingecko(monkeypatch, refuse_markets=lambda n: n > 1)
+    fresh = bubbles.crypto_bubbles(10)
+    assert fresh["stale"] is None and fresh["data_age_s"] == 0
+
+    # Age the page past its minute without waiting one.
+    with bubbles._cache_lock:
+        at, rows = bubbles._cache[bubbles._MARKETS_KEY]
+        bubbles._cache[bubbles._MARKETS_KEY] = (at - 200, rows)
+
+    out = bubbles.crypto_bubbles(10)
+    assert "error" not in out, "an older board beats no board"
+    assert out["count"] == 10
+    assert 199 <= out["data_age_s"] <= 202
+    assert "refused a refresh" in out["stale"]
+    assert seen["slept"] == [], "nothing to wait for when there is a fallback"
+
+
+def test_a_board_too_old_to_trust_is_not_shown(monkeypatch):
+    """Fifteen minutes is the limit: past that a mover has moved."""
+    _coingecko(monkeypatch, refuse_markets=lambda n: n > 1)
+    bubbles.crypto_bubbles(10)
+    with bubbles._cache_lock:
+        at, rows = bubbles._cache[bubbles._MARKETS_KEY]
+        bubbles._cache[bubbles._MARKETS_KEY] = (at - 1000, rows)
+    out = bubbles.crypto_bubbles(10)
+    assert out["error"]["code"] == "UPSTREAM_ERROR"
+    assert out["error"]["retryable"] is True
+
+
+def test_a_failed_stablecoin_lookup_is_not_repeated_on_the_next_call(monkeypatch):
+    """Asking again every time spent the allowance the board itself needed."""
+    seen = _coingecko(monkeypatch, stable_fails=True)
+    for _ in range(4):
+        assert bubbles.crypto_bubbles(10)["count"] == 10
+    assert seen["stables"] == 1
