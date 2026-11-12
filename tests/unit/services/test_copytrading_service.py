@@ -280,7 +280,10 @@ def test_failed_enrichment_still_returns_the_trader(monkeypatch):
     out = svc.list_lead_traders()
     row = out["traders"][0]
     assert row["measured"]["avg_leverage"] is None
-    assert any("trade history unavailable" in m for m in row["incomplete"])
+    # 59269 is OKX withholding the data, which is a different fact from a
+    # request that failed, and is reported as one.
+    assert row["trade_history_state"] == "hidden"
+    assert any("hidden by OKX" in m for m in row["incomplete"])
 
 
 def test_result_states_its_own_limits(monkeypatch):
@@ -518,3 +521,159 @@ def test_a_failed_preference_lookup_is_flagged_rather_than_empty(monkeypatch):
     out = svc.get_lead_trader("R1")
     assert out["instrument_preferences"] is None
     assert any("preferences unavailable" in w for w in out["incomplete"])
+
+
+# ── Hidden is not unknown, and seats are not copyState ────────────────────────
+#
+# All three found by probing OKX directly after a profile said a trader on
+# the leaderboard "doesn't exist" and "isn't accepting followers".
+
+_HIDDEN = RuntimeError("OKX error 59269: This futures lead trader doesn't exist")
+
+
+def test_a_hidden_trader_is_told_apart_from_a_failed_request(monkeypatch):
+    """3 of the top 20 answered 59269 on both position endpoints while their
+    aggregate endpoints answered normally. A retry cannot fix that, so it
+    must not be reported the way a timeout is."""
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader("Hidden", "H1")]),
+        "public-subpositions-history": _HIDDEN,
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+    })
+    out = svc.list_lead_traders(limit=1)
+    row = out["traders"][0]
+    assert row["trade_history_state"] == "hidden"
+    assert "cannot be verified" in row["hidden_note"]
+    assert any("hidden" in f for f in row["risk_flags"]), (
+        "unverifiable leverage is itself a risk worth flagging"
+    )
+    assert out["unmeasured"]["hidden_by_okx"] == ["Hidden"]
+
+
+def test_an_ordinary_failure_stays_unknown(monkeypatch):
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader("Flaky", "F1")]),
+        "public-subpositions-history": RuntimeError("timed out"),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+    })
+    out = svc.list_lead_traders(limit=1)
+    row = out["traders"][0]
+    assert row["trade_history_state"] == "unknown"
+    assert "hidden_note" not in row
+    assert any("trade history unavailable" in m for m in row["incomplete"])
+    assert out["unmeasured"]["hidden_by_okx"] is None
+
+
+def test_a_measured_trader_says_so(monkeypatch):
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader("Open", "O1")]),
+        "public-subpositions-history": _plain([_closed()]),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+    })
+    assert svc.list_lead_traders(limit=1)["traders"][0][
+        "trade_history_state"] == "measured"
+
+
+def _seats(now, cap, copy_state="0"):
+    row = _trader("Seats", "S1")
+    row["copyTraderNum"] = str(now)
+    row["maxCopyTraderNum"] = str(cap)
+    row["copyState"] = copy_state
+    return row
+
+
+@pytest.mark.parametrize("now,cap,expected", [
+    (116, 300, True), (600, 600, False), (0, 300, True),
+])
+def test_accepting_followers_is_read_from_the_seats(monkeypatch, now, cap, expected):
+    """copyState was "0" for all 20 traders probed, including 18 with open
+    seats: it is the CALLER's copy relationship, and an anonymous caller
+    copies nobody. Read as "accepting followers" it said no trader on OKX
+    accepts anyone."""
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_seats(now, cap)]),
+        "public-subpositions-history": _plain([_closed()]),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+    })
+    adv = svc.list_lead_traders(limit=1)["traders"][0]["advertised"]
+    assert adv["accepting_followers"] is expected
+    assert adv["max_followers"] == cap
+
+
+def test_copy_state_no_longer_decides_anything(monkeypatch):
+    for state in ("0", "1"):
+        _patch(monkeypatch, {
+            "public-lead-traders": _ranks([_seats(10, 300, copy_state=state)]),
+            "public-subpositions-history": _plain([_closed()]),
+            "public-weekly-pnl": _plain([{"pnl": "10"}]),
+        })
+        svc._cache.clear()
+        assert svc.list_lead_traders(limit=1)["traders"][0]["advertised"][
+            "accepting_followers"] is True
+
+
+def test_seats_unknown_is_none_not_false(monkeypatch):
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader("NoCap", "N1")]),
+        "public-subpositions-history": _plain([_closed()]),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+    })
+    assert svc.list_lead_traders(limit=1)["traders"][0]["advertised"][
+        "accepting_followers"] is None
+
+
+def test_okx_published_stats_survive_a_hidden_history(monkeypatch):
+    """The aggregate endpoint answers when the position ones will not, and
+    it was never being called."""
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader("Hidden", "H1")]),
+        "public-subpositions-history": _HIDDEN,
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+        "public-stats": _plain([{
+            "winRatio": "0.7372", "profitDays": "115", "lossDays": "41",
+            "avgSubPosNotional": "1135.945", "investAmt": "8065.77",
+            "curCopyTraderPnl": "11092.82",
+        }]),
+    })
+    stats = svc.list_lead_traders(limit=1)["traders"][0]["okx_published_stats"]
+    assert stats["win_rate_pct"] == 73.7
+    assert (stats["profit_days"], stats["loss_days"]) == (115, 41)
+    assert stats["avg_position_notional"] == pytest.approx(1135.945, abs=0.01)
+    assert "not measured" in stats["source"], "published is not verified"
+
+
+def test_missing_published_stats_are_none(monkeypatch):
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader("T", "T1")]),
+        "public-subpositions-history": _plain([_closed()]),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+    })
+    assert svc.list_lead_traders(limit=1)["traders"][0][
+        "okx_published_stats"] is None
+
+
+def test_a_hidden_book_says_a_retry_will_not_help(monkeypatch):
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader("Hidden", "H1")]),
+        "public-subpositions-history": _HIDDEN,
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+        "public-current-subpositions": _HIDDEN,
+        "public-preference-currency": _plain([]),
+    })
+    out = svc.get_lead_trader("H1")
+    assert out["open_positions_state"] == "hidden"
+    assert out["open_position_count"] is None
+    assert "Retrying will not change it" in out["open_positions_note"]
+
+
+def test_a_failed_book_says_a_retry_might(monkeypatch):
+    _patch(monkeypatch, {
+        "public-lead-traders": _ranks([_trader("Flaky", "F1")]),
+        "public-subpositions-history": _plain([_closed()]),
+        "public-weekly-pnl": _plain([{"pnl": "10"}]),
+        "public-current-subpositions": RuntimeError("timed out"),
+        "public-preference-currency": _plain([]),
+    })
+    out = svc.get_lead_trader("F1")
+    assert out["open_positions_state"] == "unknown"
+    assert "may work on a retry" in out["open_positions_note"]

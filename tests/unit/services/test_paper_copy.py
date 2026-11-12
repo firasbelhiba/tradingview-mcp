@@ -250,3 +250,13 @@ def test_max_positions_bounds_what_is_copied(monkeypatch):
         _pos("BTC-USDT-SWAP"), _pos("ETH-USDT-SWAP"), _pos("SOL-USDT-SWAP"),
     ]))
     assert len(copy.copy_trader("X1", max_positions=2)["plan"]) == 2
+
+
+def test_copying_a_hidden_trader_is_not_worth_retrying(monkeypatch):
+    """A hidden book stays hidden; only a failed request might come back."""
+    _patch_prices(monkeypatch)
+    svc.reset_wallet(10000.0)
+    _patch_profile(monkeypatch, _profile([], state="hidden"))
+    assert copy.copy_trader("X1")["error"]["retryable"] is False
+    _patch_profile(monkeypatch, _profile([], state="unknown"))
+    assert copy.copy_trader("X1")["error"]["retryable"] is True

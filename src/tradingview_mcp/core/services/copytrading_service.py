@@ -132,6 +132,60 @@ def _max_drawdown(weekly_pnl: List[float]) -> Optional[float]:
     return worst
 
 
+# OKX's code for "position-level data is not available for this trader". It
+# reads "This futures lead trader doesn't exist", which is not true of a
+# trader sitting on OKX's own leaderboard with live aggregate statistics.
+_HIDDEN_CODE = "59269"
+
+HIDDEN_NOTE = (
+    "OKX withholds this trader's position-level data (error 59269) while "
+    "still publishing their aggregate statistics. Measured live, 3 of the "
+    "top 20 lead traders are like this. Their open positions, per-trade "
+    "leverage and worst trade cannot be seen by anyone who is not copying "
+    "them - which is 'cannot be verified', not 'nothing to see'."
+)
+
+
+def _is_hidden(exc: Exception) -> bool:
+    return _HIDDEN_CODE in str(exc)
+
+
+def _okx_stats(code: str, inst_type: str) -> Optional[dict]:
+    """OKX's own one-year aggregates, which answer even for hidden traders.
+
+    These are published figures, not measurements: they cannot be checked
+    against trades that OKX will not show. They are still more than nothing
+    for a trader whose history is withheld.
+    """
+    rows = _rows(_get(
+        f"public-stats?instType={inst_type}&uniqueCode={code}&lastDays=4"
+    ))
+    if not rows:
+        return None
+    r = rows[0]
+    win = _f(r.get("winRatio"))
+    profit, loss = _f(r.get("profitDays")), _f(r.get("lossDays"))
+    return {
+        "window": "last 365 days",
+        "win_rate_pct": None if win is None else round(win * 100, 1),
+        "profit_days": None if profit is None else int(profit),
+        "loss_days": None if loss is None else int(loss),
+        "avg_position_notional": (
+            None if _f(r.get("avgSubPosNotional")) is None
+            else round(_f(r.get("avgSubPosNotional")), 2)
+        ),
+        "invested_amount": (
+            None if _f(r.get("investAmt")) is None
+            else round(_f(r.get("investAmt")), 2)
+        ),
+        "copiers_pnl": (
+            None if _f(r.get("curCopyTraderPnl")) is None
+            else round(_f(r.get("curCopyTraderPnl")), 2)
+        ),
+        "source": "published by OKX, not measured from trades",
+    }
+
+
 def _trade_stats(history: List[dict]) -> dict:
     levers = [_f(t.get("lever")) for t in history]
     levers = [v for v in levers if v]
@@ -222,6 +276,10 @@ def _enrich(trader: dict, inst_type: str, history_limit: int) -> dict:
     stats: dict = _trade_stats([])
     weekly: dict = _weekly_stats([])
     errors: List[str] = []
+    # measured / hidden / unknown. "hidden" is OKX withholding the data for
+    # this trader; "unknown" is a request that failed and might not next time.
+    history_state = "unknown"
+    okx_stats = None
     if code:
         try:
             history = _rows(_get(
@@ -229,8 +287,17 @@ def _enrich(trader: dict, inst_type: str, history_limit: int) -> dict:
                 f"&uniqueCode={code}&limit={history_limit}"
             ))
             stats = _trade_stats(history)
+            history_state = "measured"
         except Exception as exc:  # noqa: BLE001
-            errors.append(f"trade history unavailable: {str(exc)[:60]}")
+            if _is_hidden(exc):
+                history_state = "hidden"
+                errors.append("trade history hidden by OKX for this trader")
+            else:
+                errors.append(f"trade history unavailable: {str(exc)[:60]}")
+        try:
+            okx_stats = _okx_stats(code, inst_type)
+        except Exception:  # noqa: BLE001
+            okx_stats = None
         try:
             weekly = _weekly_stats(_rows(_get(
                 f"public-weekly-pnl?instType={inst_type}&uniqueCode={code}"
@@ -259,9 +326,23 @@ def _enrich(trader: dict, inst_type: str, history_limit: int) -> dict:
             "aum_usd": (
                 None if _f(trader.get("aum")) is None else round(_f(trader.get("aum")), 2)
             ),
-            "accepting_followers": trader.get("copyState") == "1",
+            # Seats, not copyState: that field is "0" for every trader on
+            # an anonymous request because it describes the CALLER's copy
+            # relationship. Read as "accepting followers" it said no trader
+            # on OKX accepts anyone.
+            "max_followers": (
+                None if _f(trader.get("maxCopyTraderNum")) is None
+                else int(_f(trader.get("maxCopyTraderNum")))
+            ),
+            "accepting_followers": (
+                None if _f(trader.get("maxCopyTraderNum")) is None
+                else (_f(trader.get("copyTraderNum")) or 0)
+                < _f(trader.get("maxCopyTraderNum"))
+            ),
         },
         "measured": stats,
+        "trade_history_state": history_state,
+        "okx_published_stats": okx_stats,
         "weekly": weekly,
         # Return per day of track record: +600% over 60 days and +600% over
         # 600 days rank identically on raw return and are not the same claim.
@@ -271,6 +352,12 @@ def _enrich(trader: dict, inst_type: str, history_limit: int) -> dict:
         ),
     }
     out["risk_flags"] = _risk_flags(trader, stats, weekly)
+    if history_state == "hidden":
+        out["hidden_note"] = HIDDEN_NOTE
+        out["risk_flags"].append(
+            "position-level data is hidden, so leverage and worst trade "
+            "cannot be verified"
+        )
     if errors:
         out["incomplete"] = errors
     return out
@@ -413,6 +500,10 @@ def list_lead_traders(
             {"traders": unmeasured,
              "count": len(unmeasured),
              "of_returned": len(returned),
+             "hidden_by_okx": [
+                 r["nickname"] for r in returned
+                 if r.get("trade_history_state") == "hidden"
+             ] or None,
              "meaning": (
                  "Their closed-trade history did not come back, so "
                  "avg_leverage, max_leverage, worst_trade_pct and "
@@ -499,6 +590,7 @@ def get_lead_trader(unique_code: str, instrument_type: str = "SWAP",
     # truth is "nobody knows". Same distinction the alert layer keeps
     # between "not evaluated" and "condition not met".
     open_positions_known = True
+    open_positions_hidden = False
     open_positions_reason = None
     try:
         for p in _rows(_get(
@@ -517,9 +609,12 @@ def get_lead_trader(unique_code: str, instrument_type: str = "SWAP",
             })
     except Exception as exc:  # noqa: BLE001
         open_positions_known = False
+        open_positions_hidden = _is_hidden(exc)
         open_positions_reason = str(exc)[:90]
         profile.setdefault("incomplete", []).append(
-            f"open positions unavailable: {open_positions_reason[:60]}"
+            "open positions hidden by OKX for this trader"
+            if open_positions_hidden
+            else f"open positions unavailable: {open_positions_reason[:60]}"
         )
 
     preferences: List[dict] = []
@@ -548,13 +643,20 @@ def get_lead_trader(unique_code: str, instrument_type: str = "SWAP",
     # number must not be able to mistake silence for an empty book.
     profile["open_position_count"] = len(open_positions) if open_positions_known else None
     profile["open_positions_state"] = (
-        "measured" if open_positions_known else "unknown"
+        "measured" if open_positions_known
+        else "hidden" if open_positions_hidden else "unknown"
     )
-    if not open_positions_known:
+    if open_positions_hidden:
+        profile["open_positions_note"] = (
+            HIDDEN_NOTE + " This is NOT 'no open trades'. Retrying will not "
+            "change it; pick a trader whose positions are visible if you "
+            "need to see what they hold."
+        )
+    elif not open_positions_known:
         profile["open_positions_note"] = (
             f"OKX returned no position data ({open_positions_reason}). This "
-            "is NOT 'no open trades' - it is 'nobody could tell'. Check the "
-            "trader's page on OKX, or pick one whose data comes back whole."
+            "is NOT 'no open trades' - it is 'nobody could tell'. It may "
+            "work on a retry."
         )
     elif not open_positions:
         profile["open_positions_note"] = (

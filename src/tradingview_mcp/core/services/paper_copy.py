@@ -125,7 +125,9 @@ def copy_trader(unique_code: str, wallet: Optional[str] = None,
             + str(profile.get("open_positions_note") or ""),
             unique_code=unique_code,
             open_positions_state=profile.get("open_positions_state"),
-            retryable=True,
+            # A hidden book stays hidden; only a failed request is worth
+            # trying again.
+            retryable=profile.get("open_positions_state") != "hidden",
         )
     positions = profile.get("open_positions") or []
     if not positions:
