@@ -279,3 +279,33 @@ def test_the_wallet_and_the_wallet_list_agree_on_what_it_is_worth(monkeypatch):
 def test_the_panel_shows_held_money_so_the_boxes_add_up():
     assert "margin_on_resting_orders" in HTML
     assert "Held for orders" in HTML
+
+
+# ── Making the trial conclusive ───────────────────────────────────────────────
+
+def test_the_panel_tells_the_conversation_what_is_on_screen():
+    """After a refresh the panel holds newer figures than the assistant was
+    given. It also makes a first draw visible from the other side, which is
+    the only way to know one happened without asking the person."""
+    assert "updateModelContext" in HTML
+    assert "refreshed by the person" in HTML
+    assert "catch (error) { /* this host does not take context updates */ }" in HTML
+
+
+def test_the_client_is_named_by_its_software_not_its_user():
+    info = SimpleNamespace(name="some-app", version="1.2.3")
+    ctx = SimpleNamespace(session=SimpleNamespace(
+        client_params=SimpleNamespace(clientInfo=info)))
+    assert apps.client_name(ctx) == "some-app/1.2.3"
+    assert apps.client_name(None) is None
+
+
+def test_what_a_client_claims_is_logged_only_when_auditing(monkeypatch, capsys):
+    _wallet(monkeypatch)
+    monkeypatch.delenv("TRADINGVIEW_MCP_AUDIT_LOG", raising=False)
+    asyncio.run(server.mcp.call_tool("paper_wallet_widget", {}))
+    assert "[apps]" not in capsys.readouterr().err
+    monkeypatch.setenv("TRADINGVIEW_MCP_AUDIT_LOG", "1")
+    asyncio.run(server.mcp.call_tool("paper_wallet_widget", {}))
+    line = capsys.readouterr().err
+    assert "[apps] tool=paper_wallet_widget" in line and "says_it_draws=" in line

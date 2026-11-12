@@ -69,6 +69,19 @@ def advertise(mcp: FastMCP) -> None:
     server.get_capabilities = get_capabilities  # type: ignore[method-assign]
 
 
+def client_name(ctx: Any) -> Optional[str]:
+    """The connecting software's own name for itself, for the audit line.
+
+    It names a program, not a person: every user of one app sends the
+    same string.
+    """
+    try:
+        info = ctx.session.client_params.clientInfo
+        return f"{info.name}/{info.version}"[:60]
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def client_supports_ui(ctx: Any) -> Optional[bool]:
     """Whether the connected client said it can draw views.
 

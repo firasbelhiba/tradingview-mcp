@@ -409,11 +409,31 @@ function applyHost(context) {
 
 const app = new App({ name: "paper-wallet", version: "0.1.0" });
 
+// Tell the conversation what the person is now looking at. After a refresh
+// the panel holds newer figures than the assistant was given, and without
+// this the two would quietly disagree. A host that does not take context
+// updates refuses, and the panel carries on.
+async function tellConversation(data, why) {
+  if (!data || data.error || !data.wallet) return;
+  const w = data.wallet;
+  const positions = (data.open_positions || []).map((p) =>
+    p.symbol + " " + p.side + " " + signed(p.unrealised_pnl)).join(", ") || "none";
+  const text = "Paper wallet panel on screen (" + why + "). Equity " + money(w.equity) +
+    " " + (w.currency || "") + ", open profit/loss " + signed(w.unrealised_pnl) +
+    ". Open positions: " + positions + ". Prices as of " + (data.as_of || "unknown") + ".";
+  try { await app.updateModelContext({ content: [{ type: "text", text }] }); }
+  catch (error) { /* this host does not take context updates */ }
+}
+
 app.ontoolinput = (params) => {
   const args = (params && params.arguments) || {};
   if (typeof args.wallet === "string" && args.wallet) walletArg = args.wallet;
 };
-app.ontoolresult = (result) => render(unwrap(result));
+app.ontoolresult = (result) => {
+  const data = unwrap(result);
+  render(data);
+  tellConversation(data, "drawn");
+};
 app.onhostcontextchanged = (context) => applyHost(context);
 
 $("refresh").addEventListener("click", async () => {
@@ -425,7 +445,9 @@ $("refresh").addEventListener("click", async () => {
       name: "paper_wallet_status",
       arguments: walletArg ? { wallet: walletArg } : {},
     });
-    render(unwrap(result));
+    const data = unwrap(result);
+    render(data);
+    tellConversation(data, "refreshed by the person");
   } catch (error) {
     $("asof").textContent = "Could not refresh. Try again in a moment.";
   } finally {

@@ -14,6 +14,7 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 from typing import Annotated, Optional
 
 from pydantic import Field
@@ -2786,6 +2787,12 @@ async def paper_wallet_widget(include_closed: int = 0, wallet: Optional[str] = N
         status = exception_to_envelope(e, context="paper_wallet_widget")
     name = wallet_app.wallet_label(wallet)
     draws = apps.client_supports_ui(ctx) if _WALLET_APP_REGISTERED else False
+    # Whether a given app can draw views is not documented anywhere that
+    # stays true, so a hosted deployment records what each one claims.
+    from tradingview_mcp.core import limits as _limits
+    if _limits.audit_enabled():
+        print(f"[apps] tool=paper_wallet_widget client={apps.client_name(ctx)} "
+              f"says_it_draws={draws}", file=sys.stderr, flush=True)
     shown = dict(status)
     if "error" not in shown:
         shown["wallet_name"] = name
