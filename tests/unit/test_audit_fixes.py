@@ -470,6 +470,10 @@ def test_a_hidden_history_is_not_reported_as_a_trader_who_does_not_exist(
     trader the profile tool can read. It was passed on as a retryable
     upstream error, so the reader retried something that cannot change."""
     def refuse(path):
+        # A trader who hides still has published aggregates: that is what
+        # separates them from a code nobody has.
+        if "public-stats" in path:
+            return {"code": "0", "data": [{"winRatio": "0.6"}]}
         raise RuntimeError(
             "OKX error 59269: This futures lead trader doesn't exist")
 

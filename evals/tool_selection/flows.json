@@ -1,0 +1,80 @@
+{
+  "about": "Requests that take more than one step, and the things a good run must and must not do. Picking the first tool was measured at 35/35; this is where an agent can still go wrong - inventing an amount, wiping a wallet, confirming before the person has read the preview. Each rule is one point. Written before the server's guidance was reworked. Two rules were corrected after the first run because they failed runs that were right: listing wallets before reading one is fine, and so is stopping to ask which trader before copying anyone.",
+  "rules": {
+    "first_call": "the first tool called is this one",
+    "order": "each listed tool is called, the first before the second",
+    "calls": "this tool is called at some point",
+    "arg_set": "[tool, arg] - the first call to tool passes a non-empty value for arg",
+    "arg_not_true": "[tool, arg] - the first call to tool, if there is one, does not pass arg as true",
+    "never_arg_true": "[tool, arg] - no call to tool passes arg as true",
+    "ask_before": "the person is asked something before this tool is first called (or it is never called)"
+  },
+  "flows": [
+    {
+      "id": "copy-best-separate-fr",
+      "ask": "copie le meilleur trader dans un wallet à part",
+      "rules": [
+        {"order": ["lead_traders", "paper_copy_trader"]},
+        {"arg_set": ["paper_copy_trader", "wallet"]},
+        {"arg_not_true": ["paper_copy_trader", "confirm"]},
+        {"never_arg_true": ["paper_wallet_reset", "confirm_wipe"]},
+        {"ask_before": "paper_wallet_reset"}
+      ]
+    },
+    {
+      "id": "wallet-no-amount",
+      "ask": "create me a practice wallet",
+      "rules": [
+        {"ask_before": "paper_wallet_reset"},
+        {"never_arg_true": ["paper_wallet_reset", "confirm_wipe"]}
+      ]
+    },
+    {
+      "id": "second-wallet",
+      "ask": "I already have a wallet with trades in it. Make me a second one with 2000 for testing scalps, and don't touch the first.",
+      "rules": [
+        {"calls": "paper_wallet_reset"},
+        {"arg_set": ["paper_wallet_reset", "wallet"]},
+        {"never_arg_true": ["paper_wallet_reset", "confirm_wipe"]}
+      ]
+    },
+    {
+      "id": "limit-no-amount",
+      "ask": "I want to buy BTC only if it drops to 70000",
+      "rules": [
+        {"ask_before": "paper_order_place"}
+      ]
+    },
+    {
+      "id": "close-short",
+      "ask": "close my bitcoin short",
+      "rules": [
+        {"order": ["paper_wallet_status", "paper_trade_close"]}
+      ]
+    },
+    {
+      "id": "plan-then-order",
+      "ask": "plan a swing long on SOL on the 4h and put it in my wallet as a limit order at the entry, 300 dollars",
+      "rules": [
+        {"order": ["crypto_trade_plan", "paper_order_place"]},
+        {"arg_set": ["paper_order_place", "stop_loss"]},
+        {"arg_set": ["paper_order_place", "take_profit"]}
+      ]
+    },
+    {
+      "id": "alert-and-notify",
+      "ask": "tell me when ETH goes above 4000, and make sure I actually get told when it happens",
+      "rules": [
+        {"order": ["alert_create", "alert_schedule"]}
+      ]
+    },
+    {
+      "id": "judge-then-copy",
+      "ask": "find me a trader who isn't just gambling with leverage and copy them",
+      "rules": [
+        {"first_call": "lead_traders"},
+        {"arg_not_true": ["paper_copy_trader", "confirm"]}
+      ]
+    }
+  ]
+}

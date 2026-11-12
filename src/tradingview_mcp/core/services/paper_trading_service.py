@@ -191,11 +191,15 @@ def reset_wallet(balance: float, currency: str = "USDT",
             f"({len(existing) - len(closed)} open, {len(closed)} closed, "
             f"{realised:+.2f} realised). Resetting deletes all of it "
             "permanently. Ask the person first, then pass confirm_wipe=true. "
+            "If they wanted a NEW wallet rather than a fresh start, leave "
+            "this one alone and pass wallet='<a name>' instead: a named "
+            "wallet is separate and nothing here is touched. "
             "To keep the history, read it with paper_trade_history instead.",
             open_positions=len(existing) - len(closed),
             closed_positions=len(closed),
             realised_pnl=round(realised, 2),
             needs="confirm_wipe=true",
+            or_instead="wallet='<name>' to create a separate wallet",
         )
 
     discarded = len(existing)

@@ -150,6 +150,38 @@ def _is_hidden(exc: Exception) -> bool:
     return _HIDDEN_CODE in str(exc)
 
 
+def trader_is_known(code: str, inst_type: str, get=None) -> Optional[bool]:
+    """Whether OKX has a lead trader under this code at all.
+
+    OKX answers 59269 "this lead trader doesn't exist" both for a trader
+    who hides their positions and for a code nobody has, so that error
+    alone cannot tell a private trader from a typo. The published
+    aggregates can: measured live, they answer for a hidden trader and
+    are refused with the same 59269 for a made-up code.
+
+    True: there is such a trader. False: OKX answered and there is not.
+    None: the question could not be asked, so nothing is concluded.
+    """
+    get = get or _get
+    try:
+        get(f"public-stats?instType={inst_type}&uniqueCode={code}&lastDays=4")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        return False if _is_hidden(exc) else None
+
+
+def unknown_trader_error(code: str) -> dict:
+    return make_error(
+        ErrorCode.INVALID_PARAMETER,
+        f"OKX has no lead trader with the code {code!r}. Check it for a "
+        "typo: codes are 16 characters and come from lead_traders, which "
+        "lists the current ones.",
+        unique_code=code,
+        next_step="lead_traders",
+        retryable=False,
+    )
+
+
 def _okx_stats(code: str, inst_type: str) -> Optional[dict]:
     """OKX's own one-year aggregates, which answer even for hidden traders.
 
@@ -576,6 +608,15 @@ def get_lead_trader(unique_code: str, instrument_type: str = "SWAP",
         trader = {"uniqueCode": code}
 
     profile = _enrich(trader, instrument_type, history_limit)
+    # Off the leaderboard, history refused, no published figures: that is
+    # every sign of a code that does not exist, and it used to come back
+    # as a trader with hidden data. Ask the one question that separates
+    # the two before describing a person who is not there.
+    if (trader.get("nickName") is None
+            and profile.get("trade_history_state") == "hidden"
+            and profile.get("okx_published_stats") is None
+            and trader_is_known(code, instrument_type) is False):
+        return unknown_trader_error(code)
     if not candidates or trader.get("nickName") is None:
         profile["note"] = (
             "This code is not on the leaderboard page fetched, so the "

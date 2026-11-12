@@ -3052,6 +3052,94 @@ _OFFLOADED_TOOL_COUNT = _offload_sync_tools()
 
 
 # ---------------------------------------------------------------------------
+# A scan that matches nothing still has to say something.
+#
+# Six screeners return a bare list, and an empty list reaches the client as
+# no content at all: asked "any coins breaking out right now?", the
+# assistant was handed a blank and had to guess whether that meant none,
+# a failure or a wrong argument. Measured by running the calls two models
+# chose for 35 everyday questions. The rows are untouched when there are
+# any; only the empty case becomes an object that says what was asked and
+# what to loosen.
+# ---------------------------------------------------------------------------
+_EMPTY_ADVICE = {
+    "volume_breakout_scanner": (
+        "Lower volume_multiplier or price_change_min, or use a longer "
+        "timeframe: on short bars little clears the default 2x volume and 3% move."
+    ),
+    "smart_volume_scanner": (
+        "Lower min_volume_ratio or min_price_change, or set rsi_range to 'any'."
+    ),
+    "bollinger_scan": (
+        "Raise bbw_threshold: it is the widest band still counted as a "
+        "squeeze. Typical values are 0.008 on 15m, 0.02 on 1h, 0.04 on 4h, "
+        "0.12 on 1D."
+    ),
+    "rating_filter": (
+        "Try a neighbouring rating (-3 to 3) or another timeframe; strong "
+        "ratings are rare on short bars."
+    ),
+    "top_gainers": "Check the exchange name, or try another timeframe.",
+    "top_losers": "Check the exchange name, or try another timeframe.",
+}
+
+
+def empty_result(tool_name: str, asked: dict) -> dict:
+    """What an empty scan returns instead of nothing."""
+    return {
+        "matches": 0,
+        "rows": [],
+        "meaning": (
+            "The scan ran and nothing met these settings right now. That "
+            "is an answer, not a failure: say so rather than retrying "
+            "the same call."
+        ),
+        "asked": {k: v for k, v in asked.items() if v is not None},
+        "to_widen": _EMPTY_ADVICE.get(
+            tool_name, "Loosen the thresholds or try another timeframe."
+        ),
+    }
+
+
+def _explain_empty_results() -> int:
+    import functools
+    import inspect
+
+    wrapped = 0
+    for _tool in mcp._tool_manager.list_tools():
+        _origin = _tool.fn
+        while hasattr(_origin, "__wrapped__"):
+            _origin = _origin.__wrapped__
+        _signature = inspect.signature(_origin)
+        if "list" not in str(_signature.return_annotation):
+            continue
+        if "dict" not in str(_signature.return_annotation):
+            continue  # a tool that promises only a list keeps its promise
+        _inner = _tool.fn
+
+        @functools.wraps(_inner)
+        async def _explained(*args, __inner=_inner, __name=_tool.name,
+                             __sig=_signature, **kwargs):
+            result = await __inner(*args, **kwargs)
+            if isinstance(result, list) and not result:
+                try:
+                    bound = __sig.bind_partial(*args, **kwargs)
+                    bound.apply_defaults()
+                    asked = dict(bound.arguments)
+                except TypeError:
+                    asked = dict(kwargs)
+                return empty_result(__name, asked)
+            return result
+
+        _tool.fn = _explained
+        wrapped += 1
+    return wrapped
+
+
+_EXPLAINED_TOOL_COUNT = _explain_empty_results()
+
+
+# ---------------------------------------------------------------------------
 # A call budget and an audit line around every tool.
 #
 # Both are off for a plain stdio install and switched on by environment for

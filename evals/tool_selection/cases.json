@@ -1,0 +1,45 @@
+{
+  "about": "Things a trader actually types, and the first tool an agent should reach for. 'best' scores 1, 'ok' scores 0.5, anything else 0. Written before the descriptions were reworked, and not to be edited to make a score go up: add cases, do not soften them.",
+  "cases": [
+    {"id": "brief-en", "ask": "how's the market today?", "best": ["market_brief"], "ok": ["bitcoin_market_pulse", "market_snapshot"]},
+    {"id": "brief-fr", "ask": "comment va le marché crypto ce matin ?", "best": ["market_brief"], "ok": ["bitcoin_market_pulse", "market_snapshot"]},
+    {"id": "new-en", "ask": "I'm new here, what can you do with this?", "best": ["get_started"], "ok": []},
+    {"id": "new-fr", "ask": "je débute, par quoi je commence ?", "best": ["get_started"], "ok": []},
+
+    {"id": "wallet-create", "ask": "create me a practice wallet with 5000 dollars", "best": ["paper_wallet_reset"], "ok": ["paper_wallet_list"], "args": {"balance": 5000}},
+    {"id": "wallet-show", "ask": "show me my wallet", "best": ["paper_wallet_status"], "ok": ["paper_wallet_list"]},
+    {"id": "wallet-show-fr", "ask": "montre-moi mes positions ouvertes", "best": ["paper_wallet_status"], "ok": []},
+    {"id": "wallet-list", "ask": "which wallets do I have?", "best": ["paper_wallet_list"], "ok": []},
+    {"id": "trade-open", "ask": "buy 500 dollars of ETH with 3x leverage", "best": ["paper_trade_open"], "ok": ["paper_wallet_status"]},
+    {"id": "order-limit", "ask": "I want to buy BTC only if it drops to 70000", "best": ["paper_order_place"], "ok": ["alert_create"]},
+    {"id": "order-cancel", "ask": "cancel my pending order", "best": ["paper_order_cancel", "paper_order_list"], "ok": ["paper_wallet_status"]},
+    {"id": "trade-close", "ask": "close my bitcoin short", "best": ["paper_trade_close", "paper_wallet_status"], "ok": []},
+    {"id": "trade-stop", "ask": "move my stop on the BTC trade to 76000", "best": ["paper_trade_modify", "paper_wallet_status"], "ok": []},
+    {"id": "trade-history", "ask": "how have my trades done so far?", "best": ["paper_trade_history"], "ok": ["paper_wallet_status"]},
+
+    {"id": "traders-top", "ask": "give me the top traders", "best": ["lead_traders"], "ok": []},
+    {"id": "traders-copy-best-fr", "ask": "copie le meilleur trader dans un wallet à part", "best": ["lead_traders"], "ok": ["paper_wallet_list", "paper_wallet_reset"]},
+    {"id": "traders-copy-code", "ask": "copy trader 3A1B2C4D5E6F7890 into my wallet", "best": ["paper_copy_trader"], "ok": ["lead_trader_profile"], "args": {"unique_code": "3A1B2C4D5E6F7890"}},
+    {"id": "traders-judge", "ask": "is trader 3A1B2C4D5E6F7890 any good or just lucky?", "best": ["lead_trader_profile", "lead_trader_trades"], "ok": []},
+
+    {"id": "bubbles", "ask": "show me the bubble chart of the top 30 coins this week", "best": ["crypto_bubbles"], "ok": [], "args": {"limit": 30, "window": "7d"}},
+    {"id": "plan", "ask": "give me a swing trade plan for SOL on the 4h", "best": ["crypto_trade_plan"], "ok": ["coin_analysis", "multi_timeframe_analysis"]},
+    {"id": "analyse", "ask": "analyse BTC for me", "best": ["coin_analysis", "multi_timeframe_analysis"], "ok": ["combined_analysis", "multi_agent_analysis", "crypto_trade_plan"]},
+    {"id": "watchlist", "ask": "check these for me: BTC, ETH, SOL, AVAX", "best": ["crypto_watchlist"], "ok": []},
+
+    {"id": "alert-create", "ask": "tell me when ETH goes above 4000", "best": ["alert_create"], "ok": ["alert_metrics"]},
+    {"id": "alert-check", "ask": "did any of my alerts trigger?", "best": ["alert_check"], "ok": ["alert_list"]},
+    {"id": "alert-notify", "ask": "how do I make my alerts actually notify me?", "best": ["alert_schedule"], "ok": []},
+
+    {"id": "squeeze", "ask": "where are shorts crowded enough to get squeezed?", "best": ["squeeze_scan"], "ok": ["funding_screener", "positioning"]},
+    {"id": "positioning", "ask": "on BTC perps, who is long and who is short right now, and what is funding?", "best": ["positioning"], "ok": ["funding_screener"]},
+    {"id": "breadth", "ask": "are alts following bitcoin up or is it just a few coins moving?", "best": ["market_breadth"], "ok": ["crypto_bubbles", "relative_strength", "narrative_rotation"]},
+    {"id": "sectors-fr", "ask": "quels secteurs crypto montent en ce moment ?", "best": ["narrative_rotation"], "ok": []},
+    {"id": "gainers", "ask": "what are the biggest gainers on Binance today?", "best": ["top_gainers"], "ok": []},
+    {"id": "mood", "ask": "is the market greedy or fearful right now?", "best": ["fear_greed"], "ok": ["market_brief"]},
+    {"id": "correlation", "ask": "does my SOL trade just follow bitcoin?", "best": ["correlation"], "ok": []},
+    {"id": "strength", "ask": "which coins have been strongest against bitcoin over the last month?", "best": ["relative_strength"], "ok": []},
+    {"id": "breakout", "ask": "any coins breaking out right now?", "best": ["donchian_breakout_scan", "volume_breakout_scanner"], "ok": ["supertrend_scan", "trend_strength_scan"]},
+    {"id": "backtest-fr", "ask": "est-ce que la stratégie RSI marche sur ETH ?", "best": ["backtest_strategy", "walk_forward_backtest_strategy"], "ok": ["compare_strategies"]}
+  ]
+}

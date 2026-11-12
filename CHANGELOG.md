@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **A yardstick for whether an assistant uses the tools well**
+  (`evals/tool_selection/`). 35 things a trader actually types, in English
+  and French, each with the tool that should be reached for first, and 8
+  multi-step requests with the things a good run must and must not do
+  (ask for an amount rather than invent one, never wipe a wallet unasked,
+  preview a copy before confirming it). `score.py export` writes the tool
+  list and the questions without the answers; `score` and `flows` mark a
+  model's replies. First measurement, two models: 35/35 on the first tool
+  with the full list, 34/35 and 35/35 from tool names alone, 18/18 on the
+  flows. The descriptions were therefore left as they are. Running the
+  calls the models chose is what found the three fixes below.
 - **`crypto_bubbles`** returns the top N coins by market cap with the change
   over 1h, 24h, 7d, 30d and 1y in a single call, so a rendered view can
   switch window without refetching. Breadth comes with it. Source is
@@ -43,6 +54,25 @@ All notable changes to this project will be documented in this file.
   case — the opposite bias to a stop, and the results say so.
 
 ### Fixed
+- **A mistyped trader code was described as a trader who hides.** OKX
+  answers error 59269 both for a trader with private positions and for a
+  code nobody has, so `lead_trader_profile` returned a profile with a null
+  name and "position-level data is hidden" for any 16 characters typed at
+  it. The published aggregates separate the two: measured live, they answer
+  for a hidden trader and are refused for a made-up code.
+  `lead_trader_profile`, `lead_trader_trades` and `paper_copy_trader` now
+  return `INVALID_PARAMETER` saying there is no such trader and where codes
+  come from. If that check cannot be made, nothing is concluded.
+- **A scan that matched nothing answered with nothing.** Six screeners
+  return a bare list (`top_gainers`, `top_losers`, `bollinger_scan`,
+  `rating_filter`, `volume_breakout_scanner`, `smart_volume_scanner`) and
+  an empty list reached the client as no content at all. An empty result
+  is now an object: `matches: 0`, what was asked including defaults, and
+  which setting to loosen. Rows are passed through untouched.
+- **Refusing to wipe a wallet named only the destructive way forward.**
+  Asked to create a wallet when one exists, `paper_wallet_reset` said to
+  pass `confirm_wipe=true`. It now also says that `wallet='<name>'` makes
+  a separate wallet and leaves this one alone.
 - **Traders whose instruments OKX blanks were presented as ordinary
   positions.** Measured against the live leaderboard: 5 of the top 20
   return open positions with side, leverage and margin but no instrument,

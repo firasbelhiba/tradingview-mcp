@@ -37,6 +37,8 @@ from tradingview_mcp.core.services.copytrading_service import (
     _f,
     _get,
     _rows,
+    trader_is_known,
+    unknown_trader_error,
 )
 
 _PAGE_SIZE = 100      # OKX's ceiling; 200 is rejected outright
@@ -277,6 +279,10 @@ def get_lead_trader_trades(
 
     if not collected:
         if error and _HIDDEN_CODE in error:
+            # The same error covers a typo. Only say "hidden" for a
+            # trader OKX otherwise admits to.
+            if trader_is_known(code, instrument_type, get=_get) is False:
+                return unknown_trader_error(code)
             # OKX words this "This futures lead trader doesn't exist". They
             # do: the profile tool reads their aggregates. What is withheld is
             # the trade history, and asking again will not change that.
