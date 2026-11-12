@@ -55,6 +55,9 @@ class ErrorCode(str, Enum):
     PARTIAL_DATA = "PARTIAL_DATA"
 
     # Environment
+    # This server refusing work, as opposed to an upstream refusing it.
+    RATE_LIMITED = "RATE_LIMITED"
+    LIMIT_REACHED = "LIMIT_REACHED"
     DEPENDENCY_MISSING = "DEPENDENCY_MISSING"
     INTERNAL_ERROR = "INTERNAL_ERROR"
 

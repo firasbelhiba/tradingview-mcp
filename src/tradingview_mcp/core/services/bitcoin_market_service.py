@@ -31,10 +31,25 @@ _PRICE_URL = (
 )
 
 
+# CoinGecko's free allowance is shared with every other tool that calls it
+# from the same address. Two requests on every pulse spent it fast enough
+# that the next CoinGecko-backed tool was answered 429, so the answer is
+# kept for a minute: the figures do not move meaningfully faster than that.
+_CACHE_TTL = 60.0
+_cache: dict = {}
+
+
 def _http_get_json(url: str) -> dict:
+    import time
+
+    hit = _cache.get(url)
+    if hit and (time.time() - hit[0]) <= _CACHE_TTL:
+        return hit[1]
     req = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+        data = json.loads(resp.read().decode("utf-8"))
+    _cache[url] = (time.time(), data)
+    return data
 
 
 def _classify_risk(btc_change_24h: float, btc_dominance: float, total_mcap_change_24h: float) -> tuple[str, str]:

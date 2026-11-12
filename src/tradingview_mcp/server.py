@@ -1729,8 +1729,14 @@ async def lead_trader_trades(
     instrument: Optional[str] = None,
     include_trades: bool = True,
     include_equity_curve: bool = False,
+    trade_rows: int = 40,
 ) -> dict:
     """Every closed trade for one lead trader, with full detail and statistics.
+
+    Statistics always cover every trade fetched (max_trades). The rows
+    themselves are capped at trade_rows, newest first, because 300 rows
+    measured 95-150 KB in one answer; raise trade_rows when the
+    individual trades are what is wanted.
 
     Pages back through the whole history (OKX caps a page at 100), so this is
     the complete log rather than a recent slice, and reports
@@ -1768,7 +1774,7 @@ async def lead_trader_trades(
     try:
         return await asyncio.to_thread(
             get_lead_trader_trades, unique_code, instrument_type, max_trades,
-            instrument, include_trades, include_equity_curve,
+            instrument, include_trades, include_equity_curve, trade_rows,
         )
     except Exception as e:
         return exception_to_envelope(e, context="lead_trader_trades")
@@ -2092,7 +2098,7 @@ async def get_started() -> dict:
     wallet, are there alerts, is the Marketaux key set, is the data layer
     answering — and returns an ordered list of next steps.
 
-    It is not a feature tour. A list of 74 tools is what the README is for,
+    It is not a feature tour. A list of every tool is what the README is for,
     and whoever needs this is the person who did not read one.
 
     Returns:
@@ -3043,6 +3049,65 @@ def _offload_sync_tools() -> int:
 
 
 _OFFLOADED_TOOL_COUNT = _offload_sync_tools()
+
+
+# ---------------------------------------------------------------------------
+# A call budget and an audit line around every tool.
+#
+# Both are off for a plain stdio install and switched on by environment for
+# a hosted one, where every caller shares one process, one disk and one
+# upstream allowance. Applied here, after the offload above, so it covers
+# every tool including ones added later.
+# ---------------------------------------------------------------------------
+def _guard_tools() -> int:
+    import functools
+    import time as _time
+
+    from tradingview_mcp.core import limits
+    from tradingview_mcp.core.errors import ErrorCode, make_error
+
+    budget = limits.budget_from_env()
+    audited = limits.audit_enabled()
+    if budget.per_minute <= 0 and not audited:
+        return 0
+
+    guarded = 0
+    for _tool in mcp._tool_manager.list_tools():
+        _inner = _tool.fn
+
+        @functools.wraps(_inner)
+        async def _guarded(*args, __inner=_inner, __name=_tool.name, **kwargs):
+            wait = budget.take()
+            if wait is not None:
+                if audited:
+                    limits.audit(__name, 0.0, "refused:RATE_LIMITED")
+                return make_error(
+                    ErrorCode.RATE_LIMITED,
+                    f"This server allows {budget.per_minute} tool calls a "
+                    f"minute across everyone using it, and that is used up. "
+                    f"Try again in about {wait:.0f} seconds.",
+                    retry_after_s=wait, retryable=True,
+                )
+            started = _time.time()
+            outcome = "ok"
+            try:
+                result = await __inner(*args, **kwargs)
+                if isinstance(result, dict) and isinstance(result.get("error"), dict):
+                    outcome = f"error:{result['error'].get('code')}"
+                return result
+            except Exception as exc:
+                outcome = f"raised:{type(exc).__name__}"
+                raise
+            finally:
+                if audited:
+                    limits.audit(__name, _time.time() - started, outcome)
+
+        _tool.fn = _guarded
+        guarded += 1
+    return guarded
+
+
+_GUARDED_TOOL_COUNT = _guard_tools()
 
 
 # ── Transport security (streamable-http) ──────────────────────────────────────

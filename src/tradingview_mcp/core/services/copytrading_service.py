@@ -598,7 +598,12 @@ def get_lead_trader(unique_code: str, instrument_type: str = "SWAP",
             f"&uniqueCode={code}&limit=50"
         )):
             open_positions.append({
-                "instrument": p.get("instId"),
+                "instrument": p.get("instId") or None,
+                # OKX returns side, leverage, margin and unrealised PnL
+                # for some traders while blanking the instrument, the
+                # entry price and the size. Measured live: 5 of the top
+                # 20, on top of the 3 hidden outright.
+                "instrument_hidden": not p.get("instId"),
                 "side": p.get("posSide"),
                 "leverage": _f(p.get("lever")),
                 "margin": _f(p.get("margin")),
@@ -642,10 +647,23 @@ def get_lead_trader(unique_code: str, instrument_type: str = "SWAP",
     # None, not 0, when nobody could tell. A reader that only looks at the
     # number must not be able to mistake silence for an empty book.
     profile["open_position_count"] = len(open_positions) if open_positions_known else None
+    blanked = sum(1 for p in open_positions if p.get("instrument_hidden"))
     profile["open_positions_state"] = (
-        "measured" if open_positions_known
-        else "hidden" if open_positions_hidden else "unknown"
+        "hidden" if open_positions_hidden
+        else "unknown" if not open_positions_known
+        else "instruments_hidden" if open_positions and blanked == len(open_positions)
+        else "measured"
     )
+    profile["open_positions_instrument_hidden"] = blanked or None
+    if blanked:
+        profile["instrument_hidden_note"] = (
+            f"OKX shows that {blanked} of this trader's "
+            f"{len(open_positions)} open positions exist - side, leverage, "
+            "margin and unrealised PnL - but blanks WHICH instrument, the "
+            "entry price and the size. Measured live, 5 of the top 20 lead "
+            "traders are like this. Their leverage can be read; what they "
+            "are holding cannot, so they cannot be mirrored."
+        )
     if open_positions_hidden:
         profile["open_positions_note"] = (
             HIDDEN_NOTE + " This is NOT 'no open trades'. Retrying will not "

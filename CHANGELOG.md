@@ -43,6 +43,21 @@ All notable changes to this project will be documented in this file.
   case — the opposite bias to a stop, and the results say so.
 
 ### Fixed
+- **Traders whose instruments OKX blanks were presented as ordinary
+  positions.** Measured against the live leaderboard: 5 of the top 20
+  return open positions with side, leverage and margin but no instrument,
+  price or size. `lead_trader_profile` now marks each such position
+  `instrument_hidden`, reports the state `instruments_hidden` when all of
+  them are, and counts them in `open_positions_instrument_hidden` when
+  only some are. `paper_copy_trader` refuses the first case with the real
+  reason instead of "not a USDT pair this wallet can price", and skips
+  only the blanked rows in the second.
+- **`crypto_bubbles` failed on 2 calls in 5 from a hosted server.**
+  CoinGecko's free tier answers 429 to a datacenter address straight
+  after another CoinGecko-backed tool has run, and works seconds later.
+  A 429 is now retried after 2.5s and 6s before being surfaced; any other
+  status is not retried. `bitcoin_market_pulse` caches its two CoinGecko
+  requests for 60s so it stops spending the allowance the next tool needs.
 - **`--host 0.0.0.0` refused every request it received.** The MCP SDK enables
   DNS-rebinding protection whenever `FastMCP` is constructed with a localhost
   host, and `server.py` constructs it at import time — before `--host` is
@@ -55,6 +70,24 @@ All notable changes to this project will be documented in this file.
   everything silently is worse. A localhost bind is unchanged.
 
 ### Changed
+- **What a caller can create is now bounded.** A hosted server protected
+  only by its URL let any caller make wallets, positions, orders and
+  alerts without end, and a wallet is a file on disk. Defaults: 25
+  wallets, 50 open positions and 50 resting orders per wallet, 200
+  alerts, each overridable by a `TRADINGVIEW_MCP_MAX_...` variable. Past
+  the cap a tool returns the new `LIMIT_REACHED` and says what to remove.
+  Resetting a wallet that already exists is never refused.
+- **Optional call budget and audit line for shared deployments**, both
+  off unless asked for, so a stdio install is untouched.
+  `TRADINGVIEW_MCP_RATE_LIMIT_PER_MIN` refuses calls past that rate with
+  the new `RATE_LIMITED` and a `retry_after_s`;
+  `TRADINGVIEW_MCP_AUDIT_LOG=1` writes tool, duration and outcome to
+  stderr and never the arguments. The budget is per process, not per
+  caller, because the server cannot tell callers apart.
+- **`lead_trader_trades` returns 40 rows by default, not all of them.**
+  The full set measured 95-150 KB in one answer. Statistics still cover
+  every trade read; `trades_shown` and `trades_omitted` say what was left
+  out and `trade_rows` raises the cap.
 - **A missing paper position or alert now returns `RECORD_NOT_FOUND`, not
   `SYMBOL_NOT_FOUND`**: both are rows in this server's own database, and the
   symbol code sent clients hunting for a ticker when an id had simply been

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from tradingview_mcp.core import limits
 from tradingview_mcp.core.errors import ErrorCode, make_error
 from tradingview_mcp.core.services import paper_pricing as px
 from tradingview_mcp.core.services import display_hints
@@ -143,6 +144,17 @@ def reset_wallet(balance: float, currency: str = "USDT",
     error = _use_wallet(wallet)
     if error:
         return error
+    # A wallet is a file. Without a ceiling, a loop over wallet names is
+    # a way to fill the disk of whoever is hosting this.
+    if (not store.db_path().exists()
+            and len(store.list_wallet_names()) >= limits.MAX_WALLETS):
+        return make_error(
+            ErrorCode.LIMIT_REACHED,
+            f"This server holds {limits.MAX_WALLETS} wallets already, which "
+            "is its limit. Reset one that exists instead of making another.",
+            limit=limits.MAX_WALLETS, existing=store.list_wallet_names(),
+            retryable=False,
+        )
     try:
         balance = float(balance)
         fee_pct = float(fee_pct)
@@ -427,6 +439,14 @@ def open_trade(symbol: str, side: str, notional: float,
             retryable=True,
         )
 
+    open_now = len(store.list_positions(store.OPEN))
+    if open_now >= limits.MAX_OPEN_POSITIONS:
+        return make_error(
+            ErrorCode.LIMIT_REACHED,
+            f"This wallet has {open_now} open positions, which is its "
+            "limit. Close one before opening another.",
+            limit=limits.MAX_OPEN_POSITIONS, retryable=False,
+        )
     margin = notional / leverage
     entry_fee = notional * wallet["fee_pct"] / 100.0
     required = margin + entry_fee

@@ -31,6 +31,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from tradingview_mcp.core import limits
 from tradingview_mcp.core.errors import ErrorCode, make_error
 from tradingview_mcp.core.services import display_hints
 from tradingview_mcp.core.services import paper_pricing as px
@@ -227,6 +228,14 @@ def place_order(symbol: str, side: str, notional: float, limit_price: float,
                 f"{take_profit} vs limit {limit_price}",
             )
 
+    resting = len(store.list_orders(store.PENDING))
+    if resting >= limits.MAX_PENDING_ORDERS:
+        return make_error(
+            ErrorCode.LIMIT_REACHED,
+            f"This wallet has {resting} resting orders, which is its "
+            "limit. Cancel one before placing another.",
+            limit=limits.MAX_PENDING_ORDERS, retryable=False,
+        )
     margin = notional / leverage
     entry_fee = notional * wallet["fee_pct"] / 100.0
     if margin + entry_fee > wallet["cash"]:

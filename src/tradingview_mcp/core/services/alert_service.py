@@ -139,6 +139,15 @@ def create_alert(symbol: str, metric: str, operator: str, threshold: float,
             return make_error(ErrorCode.INVALID_PARAMETER, "symbol is required")
         symbol = "*"
 
+    from tradingview_mcp.core import limits
+    existing = len(store.list_alerts())
+    if existing >= limits.MAX_ALERTS:
+        return make_error(
+            ErrorCode.LIMIT_REACHED,
+            f"This server holds {existing} alerts, which is its limit. "
+            "Delete one with alert_manage before creating another.",
+            limit=limits.MAX_ALERTS, retryable=False,
+        )
     stored = store.add_alert(
         symbol=str(symbol).strip().upper(),
         exchange=(exchange or "KUCOIN").strip().upper(),

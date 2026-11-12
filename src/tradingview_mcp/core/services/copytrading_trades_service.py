@@ -192,6 +192,7 @@ def get_lead_trader_trades(
     instrument: Optional[str] = None,
     include_trades: bool = True,
     include_equity_curve: bool = False,
+    trade_rows: int = 40,
 ) -> dict:
     """Every closed trade for one lead trader, with performance statistics.
 
@@ -347,7 +348,18 @@ def get_lead_trader_trades(
     if error:
         result["incomplete"] = f"paging stopped early: {error}"
     if include_trades:
-        result["trades"] = trades
+        # Statistics above cover every trade fetched; the rows are capped,
+        # because 300 of them measured 95-150 KB in a single answer.
+        shown = trades[:max(0, int(trade_rows))]
+        result["trades"] = shown
+        result["trades_shown"] = len(shown)
+        if len(shown) < len(trades):
+            result["trades_omitted"] = len(trades) - len(shown)
+            result["trades_note"] = (
+                f"showing the {len(shown)} most recent of {len(trades)} "
+                "trades; the statistics cover all of them. Raise "
+                "trade_rows to see more."
+            )
     if include_equity_curve:
         result["equity_curve"] = curve
     return result

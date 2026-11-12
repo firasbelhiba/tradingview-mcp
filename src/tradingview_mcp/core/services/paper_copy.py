@@ -117,6 +117,16 @@ def copy_trader(unique_code: str, wallet: Optional[str] = None,
     # The distinction that exists for exactly this moment: copying a trader
     # whose positions could not be read would open nothing and look like it
     # worked.
+    if profile.get("open_positions_state") == "instruments_hidden":
+        return make_error(
+            ErrorCode.NO_DATA,
+            "This trader has open positions, but OKX blanks which "
+            "instruments they are, so there is nothing that can be "
+            "mirrored. " + str(profile.get("instrument_hidden_note") or ""),
+            unique_code=unique_code,
+            open_positions_state="instruments_hidden",
+            retryable=False,
+        )
     if profile.get("open_positions_state") != "measured":
         return make_error(
             ErrorCode.NO_DATA,
@@ -145,6 +155,12 @@ def copy_trader(unique_code: str, wallet: Optional[str] = None,
     skipped: List[Dict[str, Any]] = []
 
     for position in positions[:max_positions]:
+        if position.get("instrument_hidden") or not position.get("instrument"):
+            skipped.append({
+                "instrument": None,
+                "reason": "instrument hidden by OKX for this position",
+            })
+            continue
         symbol = okx_symbol(position.get("instrument"))
         if not symbol:
             skipped.append({

@@ -106,6 +106,34 @@ def _stablecoin_symbols() -> set:
     return symbols
 
 
+# Seconds to wait before each retry of a throttled request. Measured from the
+# hosted server: CoinGecko answered 429 on 2 of 5 calls, each time straight
+# after another CoinGecko-backed tool had run, and succeeded seconds later.
+_BACKOFF = (2.5, 6.0)
+_sleep = time.sleep
+
+
+def _get_with_retry(url: str) -> Any:
+    """GET JSON from CoinGecko, waiting out a 429 rather than surfacing it.
+
+    A datacenter address shares CoinGecko's free allowance with everything
+    else on it, so a throttle here is usually a matter of seconds. Only a
+    429 is retried: any other failure is a different problem and waiting
+    will not fix it.
+    """
+    for attempt in range(len(_BACKOFF) + 1):
+        req = urllib.request.Request(
+            url, headers={"User-Agent": _UA, "Accept": "application/json"}
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429 or attempt == len(_BACKOFF):
+                raise
+            _sleep(_BACKOFF[attempt])
+
+
 def _fetch(limit: int) -> List[dict]:
     key = f"markets:{limit}"
     with _cache_lock:
@@ -118,11 +146,7 @@ def _fetch(limit: int) -> List[dict]:
         "&page=1&sparkline=false"
         "&price_change_percentage=1h%2C24h%2C7d%2C30d%2C1y"
     )
-    req = urllib.request.Request(
-        url, headers={"User-Agent": _UA, "Accept": "application/json"}
-    )
-    with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-        rows = json.loads(resp.read().decode("utf-8"))
+    rows = _get_with_retry(url)
     if not isinstance(rows, list):
         raise RuntimeError("CoinGecko returned an unexpected shape")
     with _cache_lock:

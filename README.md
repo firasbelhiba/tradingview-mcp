@@ -64,7 +64,7 @@ Backtest an RSI strategy on BTC on the daily timeframe
 
 > This is a fork of [atilaahmettaner/tradingview-mcp](https://github.com/atilaahmettaner/tradingview-mcp)
 > (MIT, © 2025 Ahmet Taner Atila). Everything below is added on top of the
-> upstream tools documented further down. **80 tools, 1,148 tests.**
+> upstream tools documented further down. **80 tools, 1,171 tests.**
 
 **New here? Start by asking your AI these three things:**
 
@@ -209,7 +209,8 @@ defaults to that transport. Two things the transport needs that are
 easy to miss:
 
 ```bash
-tradingview-mcp streamable-http --host 0.0.0.0 --port 8000 \n    --allowed-host mcp.example.com
+tradingview-mcp streamable-http --host 0.0.0.0 --port 8000 \
+    --allowed-host mcp.example.com
 ```
 
 - **`--allowed-host`** (repeatable, or `TRADINGVIEW_MCP_ALLOWED_HOSTS`
@@ -223,6 +224,19 @@ tradingview-mcp streamable-http --host 0.0.0.0 --port 8000 \n    --allowed-host 
   tools write — `paper_wallet_reset` wipes the wallet, `alert_manage`
   deletes alerts. Put a reverse proxy that checks a token in front of
   it, and do not publish the port directly.
+- **Two switches for a shared deployment, both off by default.**
+  `TRADINGVIEW_MCP_RATE_LIMIT_PER_MIN=120` refuses calls past that many a
+  minute with `RATE_LIMITED` and a `retry_after_s`.
+  `TRADINGVIEW_MCP_AUDIT_LOG=1` writes one line per call to stderr with
+  the tool, how long it took and how it ended, never its arguments.
+  The budget is one for the whole process, not per caller: the server
+  cannot tell callers apart, so it bounds the total rather than being
+  fair between them.
+- **What a caller can create is capped**, with or without those
+  switches: 25 wallets, 50 open positions and 50 resting orders per
+  wallet, 200 alerts. Each has a `TRADINGVIEW_MCP_MAX_...` variable.
+  Past the cap the tool returns `LIMIT_REACHED` and says what to
+  remove.
 
 ### Install this fork
 
