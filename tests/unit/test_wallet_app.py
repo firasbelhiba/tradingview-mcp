@@ -309,3 +309,20 @@ def test_what_a_client_claims_is_logged_only_when_auditing(monkeypatch, capsys):
     asyncio.run(server.mcp.call_tool("paper_wallet_widget", {}))
     line = capsys.readouterr().err
     assert "[apps] tool=paper_wallet_widget" in line and "says_it_draws=" in line
+
+
+def test_the_views_half_never_contradicts_the_text(monkeypatch):
+    """Measured through a Claude connector: the assistant was handed
+    structuredContent, not the text. It carried a display_hint asking for a
+    panel while the text beside it said one was already drawn."""
+    _wallet(monkeypatch)
+    status = svc.wallet_status()
+    drawn = wallet_app.data_for_view(status, "main", True)
+    assert "display_hint" not in drawn
+    assert drawn["shown"] == wallet_app.PANEL_NOTE
+    assert drawn["open_positions"] == status["open_positions"], "the view still gets everything"
+    for draws in (False, None):
+        plain = wallet_app.data_for_view(status, "main", draws)
+        assert plain["display_hint"] == status["display_hint"]
+        assert "shown" not in plain
+    assert "display_hint" in status, "and the status itself is not modified"

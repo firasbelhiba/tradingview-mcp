@@ -2793,10 +2793,7 @@ async def paper_wallet_widget(include_closed: int = 0, wallet: Optional[str] = N
     if _limits.audit_enabled():
         print(f"[apps] tool=paper_wallet_widget client={apps.client_name(ctx)} "
               f"says_it_draws={draws}", file=sys.stderr, flush=True)
-    shown = dict(status)
-    if "error" not in shown:
-        shown["wallet_name"] = name
-        shown["wallet_is_default"] = name == wallet_app.DEFAULT_WALLET
+    shown = wallet_app.data_for_view(status, name, draws)
     return CallToolResult(
         content=[TextContent(
             type="text", text=wallet_app.text_for_model(status, name, draws),

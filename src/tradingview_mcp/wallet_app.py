@@ -6,10 +6,14 @@ send a chat message, which the host flags with a security warning. A view
 served by the server is the same every time and its buttons call tools
 directly.
 
-Two audiences read one tool result, and they are given different things:
+Two audiences read one tool result. The specification says they read
+different halves of it; measured through a Claude connector, the assistant
+was handed the view's half. So neither half may say anything the other
+contradicts:
 
-  * ``structuredContent`` goes to the view and is not added to the model's
-    context, so it carries the whole wallet status.
+  * ``structuredContent`` goes to the view, so it carries the whole wallet
+    status. When a panel is drawn it drops the display_hint and carries
+    the same note the text does, because the assistant may be reading it.
   * ``content`` is what the model reads. When the client says it can draw
     views it gets a short summary and is told a panel is on screen, so it
     does not repeat the numbers or draw a second panel. When the client did
@@ -41,10 +45,12 @@ RESOURCE_META = {
     }
 }
 
-_PANEL_NOTE = (
+PANEL_NOTE = (
     "An interactive panel showing this wallet is on the person's screen, with "
     "its own refresh button. Do not repeat these figures in prose and do not "
-    "draw another panel. Add only what the panel cannot say."
+    "draw another panel. Add only what the panel cannot say. This app said it "
+    "can draw panels, which is not proof that it did: if the person says they "
+    "see none, call paper_wallet_status and show them that instead."
 )
 
 
@@ -89,7 +95,7 @@ def summary_for_model(status: dict, wallet_name: str) -> dict:
         ],
         "as_of": status.get("as_of"),
         "simulation": "Simulated wallet. Nothing here reaches an exchange.",
-        "shown": _PANEL_NOTE,
+        "shown": PANEL_NOTE,
     }
     # Whatever a glance at healthy numbers could miss is never trimmed away.
     for key in ("unsettled_positions", "orders_unchecked", "settled_this_check",
@@ -97,6 +103,20 @@ def summary_for_model(status: dict, wallet_name: str) -> dict:
         if status.get(key):
             summary[key] = status[key]
     return summary
+
+
+def data_for_view(status: dict, wallet_name: str, client_draws: Optional[bool]) -> dict:
+    """The whole status, labelled, and consistent with what the text says."""
+    data = dict(status)
+    if "error" in data:
+        return data
+    data["wallet_name"] = wallet_name
+    data["wallet_is_default"] = wallet_name == DEFAULT_WALLET
+    if client_draws:
+        # A hint to draw a panel, beside a panel, produces two panels.
+        data.pop("display_hint", None)
+        data["shown"] = PANEL_NOTE
+    return data
 
 
 def text_for_model(status: dict, wallet_name: str, client_draws: Optional[bool]) -> str:
