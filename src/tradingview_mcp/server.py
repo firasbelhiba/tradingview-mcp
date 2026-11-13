@@ -3498,11 +3498,13 @@ def _serve_http() -> None:
     import uvicorn
 
     from tradingview_mcp.core.http_log import RefusalLog
+    from tradingview_mcp.core.protocol_era import NewerProtocolGate
     from tradingview_mcp.core.spaces import SpaceRouter
 
     mcp.settings.stateless_http = not http_keeps_sessions()
-    # Outermost, so a refusal by the router is explained as well.
-    app = RefusalLog(SpaceRouter(mcp.streamable_http_app()))
+    # Outermost first: every refusal is explained, a protocol version this
+    # SDK cannot speak is answered unambiguously, then the link picks a space.
+    app = RefusalLog(NewerProtocolGate(SpaceRouter(mcp.streamable_http_app())))
     config = uvicorn.Config(
         app,
         host=mcp.settings.host,
