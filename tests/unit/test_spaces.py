@@ -337,3 +337,39 @@ def test_the_yardsticks_answers_all_survive_the_crypto_set():
     hidden = server.hidden_tools("crypto", False, ALL)
     for case in cases["cases"]:
         assert not set(case["best"]) & hidden, case["id"]
+
+
+# ── A client that comes back after a pause ───────────────────────────────────
+
+def test_http_answers_each_request_on_its_own_unless_asked(monkeypatch):
+    """Measured on the hosted server: 60 answers of 400 Bad Request in 24
+    hours. A session lives in memory, is dropped after thirty minutes of
+    silence and by every restart, and a client returning on one was refused -
+    shown to the person as a tool that failed."""
+    monkeypatch.delenv("TRADINGVIEW_MCP_HTTP_SESSIONS", raising=False)
+    assert server.http_keeps_sessions() is False
+    for value in ("1", "true", "YES"):
+        monkeypatch.setenv("TRADINGVIEW_MCP_HTTP_SESSIONS", value)
+        assert server.http_keeps_sessions() is True
+    for value in ("", "0", "no"):
+        monkeypatch.setenv("TRADINGVIEW_MCP_HTTP_SESSIONS", value)
+        assert server.http_keeps_sessions() is False
+
+
+def test_nothing_the_server_remembers_lives_in_a_session():
+    """Why sessions can go: a wallet written on one request is read on the
+    next from disk, by a call that shares nothing with the first."""
+    svc.reset_wallet(750.0)
+    store._initialised.clear()          # as a fresh process would start
+    assert svc.wallet_status()["wallet"]["starting_balance"] == 750.0
+
+
+def test_the_wallet_panel_tool_works_with_no_session_to_ask(monkeypatch):
+    """Without a session the client's capabilities are unknown, so the tool
+    must fall back to telling the assistant everything, not fail."""
+    _prices(monkeypatch)
+    svc.reset_wallet(1000.0)
+    out = asyncio.run(server.mcp.call_tool("paper_wallet_widget", {}))
+    told = json.loads(out.content[0].text)
+    assert told["wallet"]["starting_balance"] == 1000.0
+    assert "display_hint" in told and "shown" not in told

@@ -106,6 +106,18 @@ All notable changes to this project will be documented in this file.
   case — the opposite bias to a stop, and the results say so.
 
 ### Fixed
+- **A client returning after a pause was refused with 400 Bad Request.**
+  Over streamable-http a session lives in the process's memory: the SDK
+  drops it after thirty minutes of silence, and a restart drops them all.
+  The next request on a forgotten session was answered `Session not found`
+  or `Missing session ID`, which a person sees as a tool that failed.
+  Measured on the hosted server: 60 such answers in 24 hours. Nothing this
+  server remembers is kept in a session, so the HTTP transport now answers
+  every request on its own and there is no session to go stale; a
+  redeploy no longer leaves a connector needing to be reconnected.
+  `TRADINGVIEW_MCP_HTTP_SESSIONS=1` restores sessions. The cost is that
+  `paper_wallet_widget` cannot know whether the client draws panels and
+  tells the assistant everything, as it does for a client that cannot.
 - **A price far below a dollar was rounded away.** Prices were rounded to
   a fixed four or six decimals, and trade setups and Fibonacci levels to
   two. Measured on PEPE and SHIB: `coin_analysis` returned 23 price fields

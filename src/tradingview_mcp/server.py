@@ -3465,6 +3465,28 @@ def main() -> None:
         _serve_http()
 
 
+def http_keeps_sessions() -> bool:
+    """Whether the HTTP transport remembers clients between requests.
+
+    It does not, unless asked. A session lives in this process's memory, so
+    it is gone after a restart, and the SDK also drops one after thirty
+    minutes of silence. A client that comes back then is answered 400 Bad
+    Request. Measured on the hosted server: 60 of those in 24 hours, each one
+    shown to a person as a tool that failed, the first call after a pause or
+    a redeploy every time. Nothing this server remembers is kept in a
+    session - wallets and alerts are in SQLite - so there is nothing to lose
+    by answering every request on its own.
+
+    The cost: without a session the client's capabilities are not known at
+    call time, so paper_wallet_widget cannot tell whether a panel will be
+    drawn and tells the assistant everything, as for a client that cannot.
+    ``TRADINGVIEW_MCP_HTTP_SESSIONS=1`` brings sessions back.
+    """
+    return os.environ.get("TRADINGVIEW_MCP_HTTP_SESSIONS", "").strip().lower() in (
+        "1", "true", "yes",
+    )
+
+
 def _serve_http() -> None:
     """Serve over streamable-http, with per-person spaces routed by link.
 
@@ -3477,6 +3499,7 @@ def _serve_http() -> None:
 
     from tradingview_mcp.core.spaces import SpaceRouter
 
+    mcp.settings.stateless_http = not http_keeps_sessions()
     app = SpaceRouter(mcp.streamable_http_app())
     config = uvicorn.Config(
         app,
