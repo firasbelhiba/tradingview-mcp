@@ -3497,10 +3497,12 @@ def _serve_http() -> None:
     import anyio
     import uvicorn
 
+    from tradingview_mcp.core.http_log import RefusalLog
     from tradingview_mcp.core.spaces import SpaceRouter
 
     mcp.settings.stateless_http = not http_keeps_sessions()
-    app = SpaceRouter(mcp.streamable_http_app())
+    # Outermost, so a refusal by the router is explained as well.
+    app = RefusalLog(SpaceRouter(mcp.streamable_http_app()))
     config = uvicorn.Config(
         app,
         host=mcp.settings.host,
