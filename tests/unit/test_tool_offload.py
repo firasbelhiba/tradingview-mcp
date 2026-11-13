@@ -8,6 +8,7 @@ blanket guarantee so a future tool can't silently reintroduce a blocker.
 import asyncio
 import inspect
 
+from tradingview_mcp import sdk
 from tradingview_mcp import server
 from tradingview_mcp.server import mcp
 
@@ -45,6 +46,6 @@ def test_offload_preserves_annotations_and_metadata():
     """
     for t in _tools():
         assert t.annotations is not None and t.annotations.title
-        assert isinstance(t.annotations.readOnlyHint, bool)
-        assert isinstance(t.annotations.destructiveHint, bool)
+        assert isinstance(sdk.field(t.annotations, "readOnlyHint"), bool)
+        assert isinstance(sdk.field(t.annotations, "destructiveHint"), bool)
         assert t.fn_metadata is not None  # validation schema still from the original signature

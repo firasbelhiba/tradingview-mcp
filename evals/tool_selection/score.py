@@ -45,11 +45,13 @@ FLOWS = json.loads((HERE / "flows.json").read_text(encoding="utf-8"))["flows"]
 
 
 def catalogue() -> list:
+    from tradingview_mcp import sdk
     from tradingview_mcp.server import mcp
 
     tools = asyncio.run(mcp.list_tools())
     return [
-        {"name": t.name, "description": t.description, "inputSchema": t.inputSchema}
+        {"name": t.name, "description": t.description,
+         "inputSchema": sdk.field(t, "inputSchema")}
         for t in tools
     ]
 

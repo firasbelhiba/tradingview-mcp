@@ -14,6 +14,7 @@ import pytest
 from mcp import types
 from pydantic import AnyUrl
 
+from tradingview_mcp import sdk
 from tradingview_mcp import apps, server, wallet_app
 from tradingview_mcp.core.services import paper_store as store
 from tradingview_mcp.core.services import paper_trading_service as svc
@@ -58,34 +59,26 @@ def test_the_view_is_listed_with_the_exact_mime_type():
     a host ignores."""
     listed = {str(r.uri): r for r in asyncio.run(server.mcp.list_resources())}
     entry = listed[wallet_app.WALLET_URI]
-    assert entry.mimeType == "text/html;profile=mcp-app"
+    assert sdk.field(entry, "mimeType") == "text/html;profile=mcp-app"
     assert entry.meta == wallet_app.RESOURCE_META
 
 
 def test_reading_the_view_returns_the_page_and_its_allow_list():
     """Hosts read the csp from the content item first, the listing second."""
-    handler = server.mcp._mcp_server.request_handlers[types.ReadResourceRequest]
-    request = types.ReadResourceRequest(
-        method="resources/read",
-        params=types.ReadResourceRequestParams(uri=AnyUrl(wallet_app.WALLET_URI)),
-    )
-    item = asyncio.run(handler(request)).root.contents[0]
-    assert item.mimeType == "text/html;profile=mcp-app"
-    assert item.text == HTML
+    item = list(asyncio.run(server.mcp.read_resource(wallet_app.WALLET_URI)))[0]
+    assert item.mime_type == "text/html;profile=mcp-app"
+    assert item.content == HTML
     assert item.meta["ui"]["csp"]["resourceDomains"] == ["https://unpkg.com"]
 
 
 def test_the_server_advertises_the_extension():
-    from mcp.server.lowlevel import NotificationOptions
-
-    caps = server.mcp._mcp_server.get_capabilities(NotificationOptions(), {})
-    assert caps.model_dump()["extensions"] == {apps.UI_EXTENSION: {}}
+    assert sdk.capabilities(server.mcp)["extensions"] == {apps.UI_EXTENSION: {}}
 
 
 def test_advertising_twice_does_not_wrap_twice():
-    before = server.mcp._mcp_server.get_capabilities
+    before = sdk.lowlevel(server.mcp).get_capabilities
     apps.advertise(server.mcp)
-    assert server.mcp._mcp_server.get_capabilities is before
+    assert sdk.lowlevel(server.mcp).get_capabilities is before
 
 
 # ── The page itself ───────────────────────────────────────────────────────────
@@ -121,7 +114,7 @@ def test_refresh_calls_a_tool_that_exists_with_an_argument_it_takes():
     called = re.search(r'callServerTool\(\{\s*name: "([a-z_]+)"', HTML).group(1)
     tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
     assert called in tools
-    assert "wallet" in tools[called].inputSchema["properties"]
+    assert "wallet" in sdk.field(tools[called], "inputSchema")["properties"]
 
 
 def test_a_blocked_bridge_says_so_instead_of_staying_blank():
@@ -203,9 +196,9 @@ def test_the_tool_returns_data_for_the_view_and_text_for_the_model(monkeypatch):
     _wallet(monkeypatch)
     out = asyncio.run(server.mcp.call_tool("paper_wallet_widget", {}))
     assert isinstance(out, types.CallToolResult)
-    assert out.structuredContent["wallet_name"] == "main", "as the wallet list spells it"
-    assert out.structuredContent["wallet_is_default"] is True
-    assert out.structuredContent["open_positions"][0]["symbol"] == "BTCUSDT"
+    assert sdk.field(out, "structuredContent")["wallet_name"] == "main", "as the wallet list spells it"
+    assert sdk.field(out, "structuredContent")["wallet_is_default"] is True
+    assert sdk.field(out, "structuredContent")["open_positions"][0]["symbol"] == "BTCUSDT"
     told = json.loads(out.content[0].text)
     assert "display_hint" in told, "no client said it could draw, so nothing was"
 
@@ -214,21 +207,21 @@ def test_a_named_wallet_is_read_and_named(monkeypatch):
     _wallet(monkeypatch)
     svc.reset_wallet(500.0, wallet="scalps")
     out = asyncio.run(server.mcp.call_tool("paper_wallet_widget", {"wallet": "scalps"}))
-    assert out.structuredContent["wallet_name"] == "scalps"
-    assert out.structuredContent["wallet_is_default"] is False
-    assert out.structuredContent["wallet"]["equity"] == pytest.approx(500.0)
-    assert out.structuredContent["open_positions"] == []
+    assert sdk.field(out, "structuredContent")["wallet_name"] == "scalps"
+    assert sdk.field(out, "structuredContent")["wallet_is_default"] is False
+    assert sdk.field(out, "structuredContent")["wallet"]["equity"] == pytest.approx(500.0)
+    assert sdk.field(out, "structuredContent")["open_positions"] == []
 
 
 def test_no_wallet_is_an_error_the_view_can_show():
     out = asyncio.run(server.mcp.call_tool("paper_wallet_widget", {}))
-    assert out.structuredContent["error"]["code"] == "NO_DATA"
-    assert "wallet_name" not in out.structuredContent
+    assert sdk.field(out, "structuredContent")["error"]["code"] == "NO_DATA"
+    assert "wallet_name" not in sdk.field(out, "structuredContent")
     assert json.loads(out.content[0].text)["error"]["code"] == "NO_DATA"
 
 
 def test_the_request_context_is_not_offered_as_an_argument():
-    assert set(_tool().inputSchema["properties"]) == {"include_closed", "wallet"}
+    assert set(sdk.field(_tool(), "inputSchema")["properties"]) == {"include_closed", "wallet"}
 
 
 def test_an_older_sdk_keeps_the_tool_and_draws_nothing(monkeypatch):

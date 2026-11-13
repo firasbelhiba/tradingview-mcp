@@ -19,6 +19,7 @@ but their annotations have to say they write, and an allowlist is how that
 stays deliberate: a NEW tool that quietly declares itself non-read-only still
 fails here until it is added to the list on purpose.
 """
+from tradingview_mcp import sdk
 from tradingview_mcp.server import mcp
 
 # Tools permitted to declare readOnlyHint=False, with the reason.
@@ -49,7 +50,7 @@ def test_every_tool_has_annotations_with_title():
 def test_every_tool_is_declared_read_only():
     not_ro = [
         t.name for t in _all_tools()
-        if t.annotations is None or t.annotations.readOnlyHint is not True
+        if t.annotations is None or sdk.field(t.annotations, "readOnlyHint") is not True
     ]
     unexpected = sorted(set(not_ro) - set(_STATEFUL_TOOLS))
     assert unexpected == [], (
@@ -67,7 +68,7 @@ def test_stateful_tools_actually_declare_that_they_write():
     by_name = {t.name: t for t in _all_tools()}
     for name in _STATEFUL_TOOLS:
         assert name in by_name, f"allowlisted tool {name} no longer exists"
-        assert by_name[name].annotations.readOnlyHint is False, (
+        assert sdk.field(by_name[name].annotations, "readOnlyHint") is False, (
             f"{name} is on the stateful allowlist but declares itself read-only"
         )
 
@@ -77,14 +78,14 @@ def test_every_tool_explicitly_declares_destructiveness():
     # destructiveHint on every tool — omitting it fails the MCP scan step.
     missing = [
         t.name for t in _all_tools()
-        if t.annotations is None or t.annotations.destructiveHint is None
+        if t.annotations is None or sdk.field(t.annotations, "destructiveHint") is None
     ]
     assert missing == [], f"tools without an explicit destructiveHint: {missing}"
 
     # Only a tool that really removes something may claim to be destructive.
     destructive = {
         t.name for t in _all_tools()
-        if t.annotations and t.annotations.destructiveHint is True
+        if t.annotations and sdk.field(t.annotations, "destructiveHint") is True
     }
     assert destructive <= {"alert_manage", "paper_wallet_reset",
                            "paper_order_cancel"}, (

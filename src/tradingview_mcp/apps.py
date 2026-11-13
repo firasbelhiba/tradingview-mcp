@@ -22,7 +22,8 @@ from __future__ import annotations
 import inspect
 from typing import Any, Optional
 
-from mcp.server.fastmcp import FastMCP
+from tradingview_mcp import sdk
+from tradingview_mcp.sdk import FastMCP
 
 UI_EXTENSION = "io.modelcontextprotocol/ui"
 APP_MIME = "text/html;profile=mcp-app"
@@ -54,7 +55,7 @@ def advertise(mcp: FastMCP) -> None:
     it rides as a pydantic extra, so it is read with getattr and assigned
     plainly.
     """
-    server = mcp._mcp_server
+    server = sdk.lowlevel(mcp)
     original = server.get_capabilities
     if getattr(original, "_advertises_ui", False):
         return
@@ -90,10 +91,17 @@ def client_supports_ui(ctx: Any) -> Optional[bool]:
     session. None is not "no": the caller should then behave as it would
     for a client that cannot draw, because that answer is right for both.
     """
-    try:
-        caps = ctx.session.client_params.capabilities
-    except Exception:  # noqa: BLE001
-        return None
+    caps = None
+    # 2.x: capabilities travel with every request, so there is an answer
+    # even with no session. 1.x: they were given once, at the handshake.
+    for read in (lambda: ctx.client_capabilities,
+                 lambda: ctx.session.client_params.capabilities):
+        try:
+            caps = read()
+        except Exception:  # noqa: BLE001
+            caps = None
+        if caps is not None:
+            break
     if caps is None:
         return None
     extensions = getattr(caps, "extensions", None)

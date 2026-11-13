@@ -10,6 +10,7 @@ import asyncio
 
 import pytest
 
+from tradingview_mcp import sdk
 from tradingview_mcp.core.services import copytrading_service as copysvc
 from tradingview_mcp.core.services import copytrading_trades_service as trades
 from tradingview_mcp.core.services import paper_copy
@@ -204,8 +205,7 @@ def test_an_empty_scan_survives_the_real_call_path(monkeypatch):
         out = asyncio.run(server.mcp.call_tool("rating_filter", {"rating": 3}))
     finally:
         wrapper.__kwdefaults__["__inner"] = saved
-    content = out[0] if isinstance(out, tuple) else out
-    text = "".join(getattr(c, "text", "") for c in content)
+    text = sdk.result_text(out)
     assert '"matches": 0' in text, "the client must receive something to read"
     assert "neighbouring rating" in text
 

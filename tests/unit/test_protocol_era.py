@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+from tradingview_mcp import sdk
 from tradingview_mcp.core import protocol_era as era
 
 SUPPORTED = ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"]
@@ -89,6 +90,9 @@ def test_only_posts_are_judged(monkeypatch):
 
 def test_the_list_of_supported_versions_comes_from_the_sdk_in_use():
     versions = era.supported_versions()
-    assert "2025-06-18" in versions and "2026-07-28" not in versions, (
-        "when the SDK speaks 2026-07-28 this gate has nothing left to do: remove it"
-    )
+    if sdk.MAJOR >= 2:
+        # The 2.x SDK speaks 2026-07-28 itself and publishes no such list,
+        # so the gate has nothing to judge by and lets everything through.
+        assert versions == []
+    else:
+        assert "2025-06-18" in versions and "2026-07-28" not in versions

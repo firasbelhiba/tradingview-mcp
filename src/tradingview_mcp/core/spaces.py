@@ -180,8 +180,17 @@ class SpaceRouter:
             scope = dict(scope, path=rewritten, raw_path=rewritten.encode(),
                          headers=headers + [(HEADER, name.encode())])
         else:
+            name = None
             scope = dict(scope, headers=headers)
-        await self.app(scope, receive, send)
+        # Also carried as a context variable, which tasks started while
+        # serving this request inherit: the 2.x SDK gives a tool no way to
+        # reach the request. Set for the owner's link too, to None, so no
+        # earlier value can be mistaken for this request's.
+        token = CURRENT.set(name)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            CURRENT.reset(token)
 
 
 def from_request(request) -> Optional[str]:

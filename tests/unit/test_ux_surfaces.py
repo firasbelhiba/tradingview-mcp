@@ -21,6 +21,7 @@ import json
 
 import pytest
 
+from tradingview_mcp import sdk
 from tradingview_mcp.core.services import display_hints
 from tradingview_mcp.server import mcp
 
@@ -50,7 +51,7 @@ def tools():
 def test_every_hand_driven_parameter_has_a_schema_description(tools):
     missing = []
     for name in _HAND_DRIVEN:
-        for arg, spec in (tools[name].inputSchema.get("properties") or {}).items():
+        for arg, spec in (sdk.field(tools[name], "inputSchema").get("properties") or {}).items():
             if not (spec.get("description") or "").strip():
                 missing.append(f"{name}.{arg}")
     assert not missing, f"no description in the schema for: {missing}"
@@ -58,13 +59,13 @@ def test_every_hand_driven_parameter_has_a_schema_description(tools):
 
 def test_the_docstring_is_not_the_only_place_the_units_live(tools):
     """A docstring reaches the model. A form reaches the person."""
-    fee = tools["paper_wallet_reset"].inputSchema["properties"]["fee_pct"]
+    fee = sdk.field(tools["paper_wallet_reset"], "inputSchema")["properties"]["fee_pct"]
     assert "0.05%" in fee["description"], "must disambiguate percent from fraction"
     assert "not 5%" in fee["description"]
 
 
 def test_money_arguments_say_what_currency_and_what_the_number_means(tools):
-    notional = tools["paper_trade_open"].inputSchema["properties"]["notional"]
+    notional = sdk.field(tools["paper_trade_open"], "inputSchema")["properties"]["notional"]
     assert "wallet's currency" in notional["description"]
     assert "leverage" in notional["description"], "margin vs notional must be said"
 
@@ -72,21 +73,21 @@ def test_money_arguments_say_what_currency_and_what_the_number_means(tools):
 def test_required_arguments_survived_the_rewrite(tools):
     """Annotated[...] with no default must stay required, or a missing
     balance would silently become one the server chose."""
-    assert tools["paper_wallet_reset"].inputSchema["required"] == ["balance"]
-    assert set(tools["paper_trade_open"].inputSchema["required"]) == {
+    assert sdk.field(tools["paper_wallet_reset"], "inputSchema")["required"] == ["balance"]
+    assert set(sdk.field(tools["paper_trade_open"], "inputSchema")["required"]) == {
         "symbol", "side", "notional"
     }
-    assert set(tools["alert_create"].inputSchema["required"]) == {
+    assert set(sdk.field(tools["alert_create"], "inputSchema")["required"]) == {
         "symbol", "metric", "operator", "threshold"
     }
 
 
 def test_defaults_survived_the_rewrite(tools):
-    props = tools["paper_wallet_reset"].inputSchema["properties"]
+    props = sdk.field(tools["paper_wallet_reset"], "inputSchema")["properties"]
     assert props["fee_pct"]["default"] == 0.05
     assert props["max_leverage"]["default"] == 20.0
     assert props["confirm_wipe"]["default"] is False
-    assert tools["paper_trade_open"].inputSchema["properties"]["market"]["default"] \
+    assert sdk.field(tools["paper_trade_open"], "inputSchema")["properties"]["market"]["default"] \
         == "futures"
 
 

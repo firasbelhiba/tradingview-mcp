@@ -27,7 +27,8 @@ from pydantic import BeforeValidator, Field
 # on a fresh stdio process). Preloading here makes the in-worker import a no-op.
 import pandas  # noqa: F401
 
-from mcp.server.fastmcp import Context, FastMCP
+from tradingview_mcp import sdk
+from tradingview_mcp.sdk import Context, FastMCP
 from mcp.types import ToolAnnotations
 
 # ── Service imports ────────────────────────────────────────────────────────────
@@ -3236,11 +3237,13 @@ _GUARDED_TOOL_COUNT = _guard_tools()
 def _current_space():
     from tradingview_mcp.core import spaces
 
-    try:
-        request = mcp.get_context().request_context.request
-    except Exception:  # noqa: BLE001 - outside a request, or not HTTP
-        return None
-    return spaces.from_request(request) if request is not None else None
+    request = sdk.current_request(mcp)
+    if request is not None:
+        return spaces.from_request(request)
+    # No request to read: the 2.x SDK, or not HTTP at all. The router set
+    # the space for this request before the SDK saw it; outside HTTP it
+    # was never set and this is None.
+    return spaces.CURRENT.get()
 
 
 def _scope_tools() -> int:
@@ -3314,8 +3317,9 @@ def _apply_toolset() -> int:
     if hidden:
         # The opening paragraph lists every stock market served; with those
         # tools gone it would describe a server that is not there.
-        rest = (mcp._mcp_server.instructions or "").split("\n\n", 1)
-        mcp._mcp_server.instructions = "\n\n".join([_CRYPTO_SUMMARY, *rest[1:]])
+        low = sdk.lowlevel(mcp)
+        rest = (low.instructions or "").split("\n\n", 1)
+        low.instructions = "\n\n".join([_CRYPTO_SUMMARY, *rest[1:]])
     return len(hidden)
 
 
@@ -3446,23 +3450,18 @@ def main() -> None:
     else:
         import sys
 
-        try:
-            mcp.settings.host = args.host
-            mcp.settings.port = args.port
-        except Exception:
-            pass
-        # Not inside the try above: a silent failure here is what made every
-        # remote request fail with "Invalid Host header".
+        # Stated here and handed to the transport explicitly: leaving it to
+        # a default is what made every remote request fail with "Invalid
+        # Host header".
         allowed = args.allowed_host or [
             h for h in os.environ.get(
                 "TRADINGVIEW_MCP_ALLOWED_HOSTS", ""
             ).split(",") if h.strip()
         ]
         security, warning = resolve_transport_security(args.host, allowed)
-        mcp.settings.transport_security = security
         if warning:
             print(f"[tradingview_mcp] {warning}", file=sys.stderr, flush=True)
-        _serve_http()
+        _serve_http(args.host, args.port, security)
 
 
 def http_keeps_sessions() -> bool:
@@ -3487,7 +3486,7 @@ def http_keeps_sessions() -> bool:
     )
 
 
-def _serve_http() -> None:
+def _serve_http(host: str, port: int, security) -> None:
     """Serve over streamable-http, with per-person spaces routed by link.
 
     The same thing ``mcp.run(transport="streamable-http")`` does, with one
@@ -3501,16 +3500,12 @@ def _serve_http() -> None:
     from tradingview_mcp.core.protocol_era import NewerProtocolGate
     from tradingview_mcp.core.spaces import SpaceRouter
 
-    mcp.settings.stateless_http = not http_keeps_sessions()
+    inner = sdk.http_app(mcp, host=host, stateless=not http_keeps_sessions(),
+                         security=security)
     # Outermost first: every refusal is explained, a protocol version this
     # SDK cannot speak is answered unambiguously, then the link picks a space.
-    app = RefusalLog(NewerProtocolGate(SpaceRouter(mcp.streamable_http_app())))
-    config = uvicorn.Config(
-        app,
-        host=mcp.settings.host,
-        port=mcp.settings.port,
-        log_level=mcp.settings.log_level.lower(),
-    )
+    app = RefusalLog(NewerProtocolGate(SpaceRouter(inner)))
+    config = uvicorn.Config(app, host=host, port=port, log_level=sdk.log_level(mcp))
     anyio.run(uvicorn.Server(config).serve)
 
 
