@@ -25,11 +25,14 @@ dependencies = [
   # in <=1.13.x calls issubclass(param.annotation, Context) on that string and dies
   # with "TypeError: issubclass() arg 1 must be a class" at import time — every tool
   # registration fails, so the server never starts.
-  # Upper bound excludes 2.x: it removed the mcp.server.fastmcp module our server
-  # imports, so an open range breaks every fresh install (and any Docker rebuild —
-  # `uv pip install --system .` ignores uv.lock). Moving to the 2.x SDK
-  # (FastMCP -> MCPServer) is a deliberate migration, not a drive-by resolve.
-  "mcp[cli]>=1.14.0,<2",
+  # 2.x is required: only it speaks protocol 2026-07-28, which Claude's
+  # connector opens with since 2026-11-13 and does not fall back from when a
+  # 1.x server refuses it. 2.x also serves every earlier revision from the
+  # same server, so older clients keep working. The code still runs on 1.x
+  # (see tradingview_mcp/sdk.py), but no install should get it. Upper bound
+  # because 3.x is not out and the 1.x -> 2.x rename shows what a major
+  # version can remove (`uv pip install --system .` ignores uv.lock).
+  "mcp[cli]>=2.3,<3",
   # Declared directly, not just inherited via tradingview-screener: server.py
   # imports pandas at module top (the issue #91 preload). If the screener pin
   # ever changes or drops pandas, an undeclared transitive dep would break

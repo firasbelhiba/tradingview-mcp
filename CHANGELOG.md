@@ -106,6 +106,19 @@ All notable changes to this project will be documented in this file.
   case — the opposite bias to a stop, and the results say so.
 
 ### Fixed
+- **Claude's connector could not reach the hosted server at all.** From
+  2026-11-13 the connector opens every connection with protocol revision
+  2026-07-28 (`server/discover`, no handshake, no sessions). The 1.x MCP
+  SDK stops at 2025-11-25 and refused it, and the connector did not fall
+  back: not after the SDK's own refusal, not after the
+  `UnsupportedProtocolVersionError` the specification defines, both tried
+  against the live connector. The package now requires `mcp>=2.3,<3`,
+  which speaks 2026-07-28 and every earlier revision from one server.
+  Checked locally on 2.3: a raw `server/discover` and the official 2.x
+  client (negotiated 2026-07-28), the old `initialize` handshake over HTTP
+  and over stdio, per-person isolation over HTTP, and the full suite.
+  `tradingview_mcp/sdk.py` keeps the code running on 1.x as well; it is the
+  only module that imports the SDK's server classes.
 - **A client returning after a pause was refused with 400 Bad Request.**
   Over streamable-http a session lives in the process's memory: the SDK
   drops it after thirty minutes of silence, and a restart drops them all.
